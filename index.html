@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ImmoFamille — Gestion de Biens</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- ✅ MODIF DESIGN : Inter (lisibilité moderne) + Playfair Display (titres élégants) -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+
+  <style>
+    /* ============================================================
+       🎨 VARIABLES CSS — Thème CLAIR et SOMBRE
+       Explication : toutes les couleurs sont définies ici.
+       Quand on met data-theme="dark" sur <html>, les variables
+       sont automatiquement remplacées par les couleurs sombres.
+    ============================================================ */
+    :root {
+      /* Thème CLAIR */
+      --bg:        #F7F6F3;
+      --surface:   #FFFFFF;
+      --surface2:  #F0EEE9;
+      --border:    #E8E5DF;
+      --text:      #1A1916;
+      --text2:     #3D3A35;
+      --muted:     #8A8780;
+      --accent:    #C9A96E;
+      --accent-dk: #A6813E;
+      --danger:    #D9534F;
+      --terrain:   #7B9E6B;
+      --maison:    #5B7FA6;
+      --radius:    14px;
+      --shadow:    0 4px 24px rgba(0,0,0,.08);
+      --shadow-lg: 0 12px 48px rgba(0,0,0,.12);
+      --transition: .22s cubic-bezier(.4,0,.2,1);
+    }
+
+    /* Thème SOMBRE */
+    [data-theme="dark"] {
+      --bg:        #0F0E0C;
+      --surface:   #1C1A17;
+      --surface2:  #252320;
+      --border:    #2E2C28;
+      --text:      #F0EDE8;
+      --text2:     #C8C4BC;
+      --muted:     #6B6760;
+      --accent:    #C9A96E;
+      --accent-dk: #E8C98A;
+      --danger:    #E06460;
+      --terrain:   #8FB87E;
+      --maison:    #7A9DC4;
+      --shadow:    0 4px 24px rgba(0,0,0,.3);
+      --shadow-lg: 0 12px 48px rgba(0,0,0,.5);
+    }
+
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.6;
+      /* Transition douce entre les thèmes */
+      transition: background .3s ease, color .3s ease;
+    }
+    img { max-width: 100%; border-radius: 8px; display: block; }
+    button { cursor: pointer; font-family: inherit; }
+    input, textarea, select { font-family: inherit; font-size: 15px; color: var(--text); }
+
+    /* ============================================================
+       TOPBAR
+    ============================================================ */
+    .topbar {
+      position: sticky; top: 0; z-index: 1000;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; height: 62px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+      transition: background .3s ease, border-color .3s ease;
+    }
+    .topbar-logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px; font-weight: 700;
+      color: var(--text); letter-spacing: -.3px;
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; text-decoration: none;
+    }
+    .logo-accent { color: var(--accent); }
+    .logo-icon {
+      width: 34px; height: 34px; background: var(--accent);
+      border-radius: 8px; display: flex; align-items: center;
+      justify-content: center; color: white; font-size: 17px;
+    }
+    .topbar-actions { display: flex; align-items: center; gap: 9px; }
+    .topbar-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+
+    /* Boutons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 16px; border-radius: 9px; border: none;
+      font-size: 14px; font-weight: 500;
+      transition: all var(--transition);
+      text-decoration: none; white-space: nowrap;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-dk); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,169,110,.4); }
+    .btn-ghost { background: transparent; color: var(--text); border: 1.5px solid var(--border); }
+    .btn-ghost:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { opacity: .85; }
+    /* Petit bouton icône pour export/import */
+    .btn-icon {
+      padding: 8px 10px; font-size: 16px;
+      background: transparent; border: 1.5px solid var(--border);
+      color: var(--text); border-radius: 9px;
+      transition: all var(--transition);
+    }
+    .btn-icon:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+
+    /* Bouton Dark Mode */
+    .theme-toggle {
+      width: 38px; height: 38px; border-radius: 9px;
+      border: 1.5px solid var(--border); background: var(--surface2);
+      color: var(--text); font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--transition);
+    }
+    .theme-toggle:hover { border-color: var(--accent); color: var(--accent); transform: rotate(20deg); }
+
+    /* ============================================================
+       LOADER — animation de chargement entre les vues
+    ============================================================ */
+    .loader-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9000;
+      background: var(--bg); align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .2s ease;
+    }
+    .loader-overlay.visible { display: flex; opacity: 1; }
+    .loader-spinner {
+      width: 38px; height: 38px;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ============================================================
+       VUES
+    ============================================================ */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ============================================================
+       PAGE ACCUEIL
+    ============================================================ */
+    .home-layout {
+      display: grid; grid-template-columns: 380px 1fr;
+      height: calc(100vh - 62px);
+    }
+    .panel {
+      background: var(--surface); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+      transition: background .3s ease, border-color .3s ease;
+    }
+    .panel-header { padding: 16px 14px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .panel-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+    .panel-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .count-badge {
+      background: var(--accent); color: white;
+      font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    }
+    /* Tri */
+    .sort-select {
+      font-size: 12px; color: var(--muted);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; padding: 4px 8px; outline: none; cursor: pointer;
+      transition: background .3s ease, color .3s ease, border-color .3s ease;
+    }
+    .sort-select:focus { border-color: var(--accent); color: var(--text); }
+
+    .search-bar {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface2); border: 1.5px solid var(--border);
+      border-radius: 10px; padding: 9px 13px;
+      transition: border-color var(--transition);
+    }
+    .search-bar:focus-within { border-color: var(--accent); }
+    .search-bar input {
+      border: none; background: transparent; outline: none;
+      flex: 1; font-size: 14px; color: var(--text);
+    }
+    .search-bar input::placeholder { color: var(--muted); }
+    .search-clear {
+      background: none; border: none; color: var(--muted);
+      font-size: 15px; padding: 0; line-height: 1; display: none;
+    }
+    .search-clear.visible { display: block; }
+    .search-clear:hover { color: var(--danger); }
+
+    .filters {
+      display: flex; gap: 7px; padding: 9px 14px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .filter-btn {
+      padding: 5px 12px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: transparent;
+      font-size: 12.5px; font-weight: 500; color: var(--muted);
+      transition: all var(--transition);
+    }
+    .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .filter-btn.active { border-color: var(--accent); background: var(--accent); color: white; }
+
+    .biens-list { flex: 1; overflow-y: auto; padding: 9px; }
+    .biens-list::-webkit-scrollbar { width: 4px; }
+    .biens-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+    .bien-card {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 8px; cursor: pointer;
+      transition: all var(--transition); overflow: hidden;
+    }
+    .bien-card:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+    .bien-card.highlighted { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(201,169,110,.18); }
+    .bien-card-img { width: 100%; height: 115px; object-fit: cover; border-radius: 0; }
+    .bien-card-img-placeholder {
+      width: 100%; height: 115px;
+      background: linear-gradient(135deg, var(--surface2) 0%, var(--border) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; color: var(--muted);
+    }
+    .bien-card-body { padding: 10px 12px 12px; }
+    .bien-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3px; }
+    .bien-card-name { font-weight: 600; font-size: 14px; color: var(--text); flex: 1; margin-right: 7px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 3px 8px; border-radius: 20px;
+      font-size: 10px; font-weight: 600; letter-spacing: .3px;
+      text-transform: uppercase; flex-shrink: 0;
+    }
+    .badge-terrain { background: rgba(123,158,107,.15); color: var(--terrain); }
+    .badge-maison  { background: rgba(91,127,166,.15);  color: var(--maison); }
+    .bien-card-loc { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-top: 3px; }
+
+    #map { width: 100%; height: 100%; z-index: 1; }
+
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 36px 16px; text-align: center; color: var(--muted);
+    }
+    .empty-state .empty-icon { font-size: 42px; margin-bottom: 12px; }
+    .empty-state p { font-size: 13.5px; line-height: 1.6; }
+
+    /* ============================================================
+       FORMULAIRE
+    ============================================================ */
+    .form-page { max-width: 720px; margin: 0 auto; padding: 30px 20px 60px; }
+    .form-page-header { margin-bottom: 26px; }
+    .form-page-header h1 { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700; margin-bottom: 5px; }
+    .form-page-header p { color: var(--muted); font-size: 14px; }
+
+    .form-card {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 22px;
+      box-shadow: var(--shadow); margin-bottom: 16px;
+      transition: background .3s ease, border-color .3s ease;
+    }
+    .form-section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 14px; font-weight: 700; color: var(--accent);
+      margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+    .form-group { margin-bottom: 15px; }
+    .form-group:last-child { margin-bottom: 0; }
+    .form-label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .form-label .required { color: var(--accent); margin-left: 2px; }
+    .form-control {
+      width: 100%; padding: 10px 12px;
+      border: 1.5px solid var(--border); border-radius: 9px;
+      background: var(--surface2); outline: none; color: var(--text);
+      transition: border-color var(--transition), background .3s ease;
+    }
+    .form-control:focus { border-color: var(--accent); background: var(--surface); }
+    textarea.form-control { resize: vertical; min-height: 85px; }
+    select.form-control {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238A8780' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+
+    /* Localisation */
+    #map-picker { width: 100%; height: 280px; border-radius: 10px; border: 1.5px solid var(--border); overflow: hidden; }
+    .geo-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .btn-geo {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 13px; border-radius: 8px;
+      background: var(--surface2); border: 1.5px solid var(--border);
+      font-size: 13px; font-weight: 500; color: var(--text);
+      transition: all var(--transition);
+    }
+    .btn-geo:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-geo.loading { opacity: .6; pointer-events: none; }
+    .map-hint { font-size: 12px; color: var(--muted); }
+    .coords-display { display: flex; gap: 8px; margin-top: 9px; }
+    .coord-field {
+      flex: 1; padding: 8px 11px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      background: var(--surface2); font-size: 13px; color: var(--muted);
+      transition: background .3s ease, border-color .3s ease;
+    }
+
+    /* Upload */
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 10px;
+      padding: 20px; text-align: center; cursor: pointer;
+      transition: all var(--transition); background: var(--surface2);
+    }
+    .upload-zone:hover { border-color: var(--accent); background: rgba(201,169,110,.04); }
+    .upload-zone.drag-over { border-color: var(--accent); background: rgba(201,169,110,.08); }
+    .upload-zone input[type="file"] { display: none; }
+    .upload-icon { font-size: 26px; margin-bottom: 6px; }
+    .upload-zone p { font-size: 13px; color: var(--muted); }
+    .upload-zone strong { color: var(--accent); }
+    .upload-counter { display: inline-block; margin-top: 5px; font-size: 12px; color: var(--accent); font-weight: 600; }
+
+    .preview-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      gap: 8px; margin-top: 10px;
+    }
+    .preview-item { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 1; background: var(--border); }
+    .preview-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+    .preview-item .remove-btn {
+      position: absolute; top: 4px; right: 4px;
+      background: rgba(0,0,0,.65); color: white; border: none;
+      border-radius: 50%; width: 21px; height: 21px; font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity var(--transition);
+    }
+    .preview-item:hover .remove-btn { opacity: 1; }
+
+    .doc-list { margin-top: 9px; }
+    .doc-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 11px; background: var(--surface2);
+      border: 1.5px solid var(--border); border-radius: 8px;
+      margin-bottom: 7px; font-size: 13px;
+      transition: background .3s ease, border-color .3s ease;
+    }
+    .doc-item .doc-icon { font-size: 17px; }
+    .doc-item .doc-name { flex: 1; color: var(--text); word-break: break-all; }
+    .doc-item .doc-size { color: var(--muted); font-size: 12px; flex-shrink: 0; }
+    .doc-item .remove-doc { background: none; border: none; color: var(--muted); font-size: 16px; padding: 2px 4px; }
+    .doc-item .remove-doc:hover { color: var(--danger); }
+
+    .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+
+    /* ============================================================
+       DÉTAIL
+    ============================================================ */
+    .detail-page { max-width: 900px; margin: 0 auto; padding: 30px 20px 80px; }
+    .detail-back {
+      display: inline-flex; align-items: center; gap: 7px;
+      color: var(--muted); font-size: 14px; background: none; border: none;
+      padding: 0; margin-bottom: 20px; transition: color var(--transition);
+    }
+    .detail-back:hover { color: var(--accent); }
+    .detail-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 22px; flex-wrap: wrap; gap: 12px;
+    }
+    .detail-header h1 { font-family: 'Playfair Display', serif; font-size: 27px; font-weight: 700; }
+    .detail-header-right { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr; } }
+    .detail-card {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow);
+      transition: background .3s ease, border-color .3s ease;
+    }
+    .detail-card-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 14px; font-weight: 700; color: var(--accent);
+      margin-bottom: 12px; display: flex; align-items: center; gap: 7px;
+    }
+    .detail-info-row { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .detail-info-row:last-child { border-bottom: none; }
+    .detail-info-label { color: var(--muted); min-width: 85px; flex-shrink: 0; }
+    .detail-info-val { color: var(--text); font-weight: 500; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 9px; }
+    .gallery-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform var(--transition); }
+    .gallery-item:hover { transform: scale(1.03); }
+    .gallery-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+    #map-detail { width: 100%; height: 250px; border-radius: 10px; overflow: hidden; }
+    .doc-download {
+      display: flex; align-items: center; gap: 11px; padding: 10px 13px;
+      background: var(--surface2); border: 1.5px solid var(--border);
+      border-radius: 8px; margin-bottom: 7px; cursor: pointer;
+      transition: all var(--transition); text-decoration: none;
+    }
+    .doc-download:hover { border-color: var(--accent); }
+    .doc-download .doc-icon { font-size: 20px; }
+    .doc-download .doc-info { flex: 1; }
+    .doc-download .doc-nm { font-size: 14px; font-weight: 500; color: var(--text); }
+    .doc-download .doc-sz { font-size: 12px; color: var(--muted); }
+    .doc-download .dl-icon { color: var(--accent); font-size: 16px; }
+
+    /* Lightbox */
+    .lightbox { display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.92); align-items: center; justify-content: center; }
+    .lightbox.open { display: flex; }
+    .lightbox img { max-width: 92vw; max-height: 88vh; border-radius: 10px; box-shadow: var(--shadow-lg); }
+    .lightbox-close {
+      position: absolute; top: 18px; right: 22px;
+      background: rgba(255,255,255,.15); border: none; color: white;
+      width: 40px; height: 40px; border-radius: 50%; font-size: 19px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background var(--transition);
+    }
+    .lightbox-close:hover { background: rgba(255,255,255,.3); }
+
+    /* Toasts */
+    .toast-container { position: fixed; bottom: 22px; right: 22px; z-index: 9999; display: flex; flex-direction: column; gap: 9px; }
+    .toast {
+      background: var(--text); color: var(--bg);
+      padding: 12px 17px; border-radius: 10px;
+      font-size: 14px; font-weight: 500; box-shadow: var(--shadow-lg);
+      display: flex; align-items: center; gap: 9px;
+      animation: slideInToast .28s ease; max-width: 320px;
+    }
+    .toast.success { background: #2E7D52; color: white; }
+    .toast.error   { background: var(--danger); color: white; }
+    @keyframes slideInToast {
+      from { transform: translateX(110%); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Popup carte */
+    .map-popup { font-family: 'Inter', sans-serif; }
+    .map-popup strong { font-weight: 600; }
+    .map-popup .popup-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; margin-top: 4px; }
+    .map-popup .voir-btn {
+      display: block; margin-top: 8px; background: var(--accent); color: white;
+      text-align: center; padding: 6px; border-radius: 6px; font-size: 13px; text-decoration: none; font-weight: 500;
+    }
+
+    .fade-in { animation: fadeIn .3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 640px) {
+      .topbar { padding: 0 13px; }
+      .logo-text-main { display: none; }
+      .home-layout { grid-template-columns: 1fr; }
+      .panel { height: 50vh; border-right: none; border-bottom: 1px solid var(--border); }
+      #map { height: 50vh; }
+      .topbar-actions .btn-ghost { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div class="loader-overlay" id="loader">
+  <div class="loader-spinner"></div>
+</div>
+
+<!-- ============================================================
+     TOPBAR
+============================================================ -->
+<nav class="topbar">
+  <a class="topbar-logo" onclick="showView('home')">
+    <div class="logo-icon">🏡</div>
+    <span class="logo-text-main">Immo<span class="logo-accent">Famille</span></span>
+  </a>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost" onclick="showView('home')">🗺️ Carte</button>
+    <div class="topbar-sep"></div>
+    <!-- Export / Import JSON -->
+    <button class="btn-icon" title="Exporter les données en JSON" onclick="exportJSON()">⬇️</button>
+    <button class="btn-icon" title="Importer des données JSON" onclick="document.getElementById('import-file').click()">⬆️</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importJSON(this)"/>
+    <div class="topbar-sep"></div>
+    <!-- Bouton thème clair/sombre -->
+    <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Changer le thème">🌙</button>
+    <div class="topbar-sep"></div>
+    <button class="btn btn-primary" onclick="showView('form', null)">＋ Ajouter</button>
+  </div>
+</nav>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="Photo agrandie"/>
+</div>
+
+<!-- Toasts -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ============================================================
+     VUE 1 : ACCUEIL
+============================================================ -->
+<div class="view active" id="view-home">
+  <div class="home-layout">
+    <aside class="panel">
+      <div class="panel-header">
+        <div class="panel-top">
+          <div class="panel-title">
+            Mes biens <span id="count-badge" class="count-badge">0</span>
+          </div>
+          <!-- Tri des biens -->
+          <select class="sort-select" id="sort-select" onchange="renderList()">
+            <option value="date-desc">Plus récents</option>
+            <option value="date-asc">Plus anciens</option>
+            <option value="nom-asc">Nom A→Z</option>
+            <option value="nom-desc">Nom Z→A</option>
+          </select>
+        </div>
+        <div class="search-bar">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Rechercher un bien…" oninput="onSearch()"/>
+          <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Effacer">✕</button>
+        </div>
+      </div>
+      <div class="filters">
+        <button class="filter-btn active" onclick="setFilter('all',this)">Tous</button>
+        <button class="filter-btn" onclick="setFilter('terrain',this)">🌿 Terrain</button>
+        <button class="filter-btn" onclick="setFilter('maison',this)">🏠 Maison</button>
+      </div>
+      <div class="biens-list" id="biens-list"></div>
+    </aside>
+    <div id="map"></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VUE 2 : FORMULAIRE (Ajout ET Modification)
+============================================================ -->
+<div class="view" id="view-form">
+  <div class="form-page fade-in">
+    <div class="form-page-header">
+      <h1 id="form-title">✨ Ajouter un bien</h1>
+      <p id="form-subtitle">Renseignez les informations de votre terrain ou maison.</p>
+    </div>
+
+    <!-- Infos générales -->
+    <div class="form-card">
+      <div class="form-section-title">📋 Informations générales</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Nom du bien <span class="required">*</span></label>
+          <input type="text" id="f-nom" class="form-control" placeholder="Ex : Terrain Kpobè…"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type <span class="required">*</span></label>
+          <select id="f-type" class="form-control">
+            <option value="">— Choisir —</option>
+            <option value="terrain">🌿 Terrain</option>
+            <option value="maison">🏠 Maison</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea id="f-desc" class="form-control" placeholder="Superficie, état, utilisation…"></textarea>
+      </div>
+    </div>
+
+    <!-- Localisation -->
+    <div class="form-card">
+      <div class="form-section-title">📍 Localisation <span class="required">*</span></div>
+      <div class="geo-row">
+        <button class="btn-geo" id="btn-geo" onclick="useMyLocation()">📡 Utiliser ma position</button>
+        <span class="map-hint">ou cliquez directement sur la carte ci-dessous</span>
+      </div>
+      <div id="map-picker"></div>
+      <div class="coords-display">
+        <input class="coord-field" id="f-lat" placeholder="Latitude" readonly/>
+        <input class="coord-field" id="f-lng" placeholder="Longitude" readonly/>
+      </div>
+      <div class="form-group" style="margin-top:12px;">
+        <label class="form-label">Adresse / Lieu-dit</label>
+        <input type="text" id="f-adresse" class="form-control" placeholder="Ex : Quartier Akpakpa, Cotonou…"/>
+      </div>
+    </div>
+
+    <!-- Photos -->
+    <div class="form-card">
+      <div class="form-section-title">📸 Photos</div>
+      <div class="upload-zone" id="photo-zone"
+           onclick="document.getElementById('f-photos').click()"
+           ondrop="handleDrop(event,'photo')"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')">
+        <div class="upload-icon">🖼️</div>
+        <p><strong>Cliquez</strong> ou glissez vos photos ici</p>
+        <p>PNG, JPG, WEBP · max 5 Mo chacune</p>
+        <span class="upload-counter" id="photo-counter">5 photos maximum</span>
+        <input type="file" id="f-photos" multiple accept="image/*" onchange="handlePhotos(this.files)"/>
+      </div>
+      <div class="preview-grid" id="photo-preview"></div>
+    </div>
+
+    <!-- Documents -->
+    <div class="form-card">
+      <div class="form-section-title">📁 Documents</div>
+      <div class="upload-zone" id="doc-zone"
+           onclick="document.getElementById('f-docs').click()"
+           ondrop="handleDrop(event,'doc')"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')">
+        <div class="upload-icon">📎</div>
+        <p><strong>Cliquez</strong> ou glissez vos documents ici</p>
+        <p>PDF, images, Word… · max 10 Mo chacun</p>
+        <span class="upload-counter" id="doc-counter">5 documents maximum</span>
+        <input type="file" id="f-docs" multiple accept=".pdf,image/*,.doc,.docx" onchange="handleDocs(this.files)"/>
+      </div>
+      <div class="doc-list" id="doc-preview"></div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="showView('home')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveBien()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VUE 3 : DÉTAIL
+============================================================ -->
+<div class="view" id="view-detail">
+  <div class="detail-page fade-in" id="detail-content"></div>
+</div>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ============================================================
+   CONSTANTES — limites de fichiers
+   Modifiez ces valeurs selon vos besoins
+============================================================ */
+const MAX_PHOTOS   = 5;
+const MAX_DOCS     = 5;
+const MAX_IMG_SIZE = 5  * 1024 * 1024;   // 5 Mo
+const MAX_DOC_SIZE = 10 * 1024 * 1024;   // 10 Mo
+
+/* ============================================================
+   STOCKAGE localStorage
+============================================================ */
+function getBiens() {
+  try { return JSON.parse(localStorage.getItem('immofamille_biens') || '[]'); }
+  catch(e) { return []; }
+}
+function saveBiens(biens) {
+  try {
+    localStorage.setItem('immofamille_biens', JSON.stringify(biens));
+  } catch(e) {
+    // localStorage plein (quota dépassé)
+    showToast('⚠️ Stockage local plein ! Supprimez des biens ou réduisez les photos.', 'error');
+  }
+}
+
+/* ============================================================
+   ÉTAT GLOBAL
+============================================================ */
+let currentFilter = 'all';
+let editingId     = null;   // null = nouveau bien, sinon = ID du bien à modifier
+let mapInstance   = null;
+let mapPicker     = null;
+let mapDetail     = null;
+let pickerMarker  = null;
+let mapMarkers    = {};
+let formPhotos    = [];
+let formDocs      = [];
+
+/* ============================================================
+   DARK MODE
+   Explication : on lit le thème dans localStorage.
+   Si absent, on respecte la préférence système.
+============================================================ */
+function initTheme() {
+  const saved       = localStorage.getItem('immofamille_theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('immofamille_theme', theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+/* ============================================================
+   LOADER
+============================================================ */
+function showLoader() { document.getElementById('loader').classList.add('visible'); }
+function hideLoader() { document.getElementById('loader').classList.remove('visible'); }
+
+/* ============================================================
+   NAVIGATION
+============================================================ */
+function showView(name, bienId) {
+  showLoader();
+  setTimeout(() => {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+    hideLoader();
+
+    if (name === 'home') {
+      initMap();
+      renderList();
+    } else if (name === 'form') {
+      resetForm(bienId);
+      initMapPicker();
+    } else if (name === 'detail' && bienId) {
+      renderDetail(bienId);
+    }
+  }, 120);
+}
+
+/* ============================================================
+   CARTE PRINCIPALE
+============================================================ */
+function initMap() {
+  if (mapInstance) {
+    setTimeout(() => mapInstance.invalidateSize(), 50);
+    refreshMapMarkers();
+    return;
+  }
+  // Centre par défaut : Cotonou, Bénin
+  mapInstance = L.map('map').setView([6.3703, 2.3912], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(mapInstance);
+  refreshMapMarkers();
+}
+
+// Crée une icône de marqueur colorée selon le type
+function makeMarkerIcon(type) {
+  const color = type === 'terrain' ? '#7B9E6B' : '#5B7FA6';
+  const emoji = type === 'terrain' ? '🌿' : '🏠';
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${color};color:white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:34px;height:34px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(0,0,0,.25);border:2.5px solid white"><span style="transform:rotate(45deg);font-size:14px">${emoji}</span></div>`,
+    iconSize: [34, 34], iconAnchor: [17, 34]
+  });
+}
+
+function refreshMapMarkers() {
+  if (!mapInstance) return;
+  Object.values(mapMarkers).forEach(m => mapInstance.removeLayer(m));
+  mapMarkers = {};
+
+  const biens  = getBiens();
+  const bounds = [];
+
+  biens.forEach(b => {
+    if (!b.lat || !b.lng) return;
+    const marker = L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b.type) })
+      .addTo(mapInstance)
+      .bindPopup(buildPopup(b), { maxWidth: 220 });
+
+    // Clic sur marqueur → zoom sur le bien + surligne la carte
+    marker.on('click', () => {
+      highlightCard(b.id);
+      mapInstance.flyTo([b.lat, b.lng], 14, { duration: .8 });
+    });
+
+    mapMarkers[b.id] = marker;
+    bounds.push([b.lat, b.lng]);
+  });
+
+  if (bounds.length === 1)      mapInstance.setView(bounds[0], 14);
+  else if (bounds.length > 1)   mapInstance.fitBounds(bounds, { padding: [50, 50] });
+}
+
+function buildPopup(b) {
+  const badgeStyle = b.type === 'terrain'
+    ? 'background:rgba(123,158,107,.15);color:#7B9E6B'
+    : 'background:rgba(91,127,166,.15);color:#5B7FA6';
+  return `<div class="map-popup">
+    <strong>${esc(b.nom)}</strong><br>
+    <span class="popup-badge" style="${badgeStyle}">${b.type === 'terrain' ? '🌿 Terrain' : '🏠 Maison'}</span>
+    ${b.adresse ? `<br><small style="color:#8A8780;margin-top:4px;display:block">📍 ${esc(b.adresse)}</small>` : ''}
+    <a class="voir-btn" href="#" onclick="showView('detail','${b.id}');return false;">Voir le détail →</a>
+  </div>`;
+}
+
+// Sécurité XSS : échappe les caractères HTML spéciaux
+function esc(str) {
+  return String(str).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+  );
+}
+
+function highlightCard(id) {
+  document.querySelectorAll('.bien-card').forEach(c => c.classList.remove('highlighted'));
+  const card = document.getElementById('card-' + id);
+  if (card) { card.classList.add('highlighted'); card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
+
+/* ============================================================
+   LISTE
+============================================================ */
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderList();
+}
+
+// Recherche tolérante : ignore accents, majuscules, espaces
+function normalize(str) {
+  return String(str).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
+function onSearch() {
+  const val = document.getElementById('search-input').value;
+  document.getElementById('search-clear').classList.toggle('visible', val.length > 0);
+  renderList();
+}
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-clear').classList.remove('visible');
+  renderList();
+}
+
+function renderList() {
+  const search = normalize(document.getElementById('search-input')?.value || '');
+  const sort   = document.getElementById('sort-select')?.value || 'date-desc';
+  let biens    = getBiens();
+
+  if (currentFilter !== 'all') biens = biens.filter(b => b.type === currentFilter);
+
+  if (search) biens = biens.filter(b =>
+    normalize(b.nom).includes(search) ||
+    normalize(b.adresse  || '').includes(search) ||
+    normalize(b.description || '').includes(search)
+  );
+
+  // Tri
+  biens.sort((a, b) => {
+    if (sort === 'nom-asc')  return a.nom.localeCompare(b.nom, 'fr');
+    if (sort === 'nom-desc') return b.nom.localeCompare(a.nom, 'fr');
+    if (sort === 'date-asc') return new Date(a.createdAt) - new Date(b.createdAt);
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+
+  const countBadge = document.getElementById('count-badge');
+  if (countBadge) countBadge.textContent = biens.length;
+
+  const container = document.getElementById('biens-list');
+  if (!container) return;
+
+  if (!biens.length) {
+    const msg = search
+      ? `Aucun résultat pour "<strong>${esc(search)}</strong>"`
+      : 'Aucun bien trouvé.<br>Ajoutez votre premier bien !';
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🏡</div><p>${msg}</p></div>`;
+    return;
+  }
+
+  container.innerHTML = biens.map(b => {
+    const imgHtml = b.photos && b.photos.length
+      ? `<img class="bien-card-img" src="${b.photos[0].dataUrl}" alt="${esc(b.nom)}" loading="lazy"/>`
+      : `<div class="bien-card-img-placeholder">${b.type === 'terrain' ? '🌿' : '🏠'}</div>`;
+
+    return `<div class="bien-card" id="card-${b.id}" onclick="showView('detail','${b.id}')">
+      ${imgHtml}
+      <div class="bien-card-body">
+        <div class="bien-card-top">
+          <div class="bien-card-name">${esc(b.nom)}</div>
+          <span class="badge badge-${b.type}">${b.type === 'terrain' ? '🌿 Terrain' : '🏠 Maison'}</span>
+        </div>
+        ${b.adresse ? `<div class="bien-card-loc">📍 ${esc(b.adresse)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   CARTE FORMULAIRE
+============================================================ */
+function initMapPicker() {
+  setTimeout(() => {
+    if (mapPicker) { mapPicker.invalidateSize(); return; }
+    mapPicker = L.map('map-picker').setView([6.3703, 2.3912], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapPicker);
+    mapPicker.on('click', e => setPickerPosition(e.latlng.lat, e.latlng.lng));
+  }, 80);
+}
+
+function setPickerPosition(lat, lng) {
+  document.getElementById('f-lat').value = lat.toFixed(6);
+  document.getElementById('f-lng').value = lng.toFixed(6);
+  if (pickerMarker) mapPicker.removeLayer(pickerMarker);
+  pickerMarker = L.marker([lat, lng]).addTo(mapPicker).bindPopup('📍 Position sélectionnée').openPopup();
+  mapPicker.setView([lat, lng], 14);
+}
+
+/* ============================================================
+   GÉOLOCALISATION
+============================================================ */
+function useMyLocation() {
+  if (!navigator.geolocation)
+    return showToast('⚠️ Géolocalisation non supportée par ce navigateur.', 'error');
+
+  const btn = document.getElementById('btn-geo');
+  btn.textContent = '⏳ Localisation…';
+  btn.classList.add('loading');
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      btn.textContent = '📡 Utiliser ma position';
+      btn.classList.remove('loading');
+      const { latitude: lat, longitude: lng } = pos.coords;
+      if (!mapPicker) {
+        initMapPicker();
+        setTimeout(() => setPickerPosition(lat, lng), 250);
+      } else {
+        setPickerPosition(lat, lng);
+      }
+      showToast('✅ Position détectée avec succès !', 'success');
+    },
+    err => {
+      btn.textContent = '📡 Utiliser ma position';
+      btn.classList.remove('loading');
+      const msgs = { 1: 'Permission refusée par le navigateur.', 2: 'Position indisponible.', 3: 'Délai dépassé. Réessayez.' };
+      showToast('⚠️ ' + (msgs[err.code] || 'Erreur de géolocalisation.'), 'error');
+    },
+    { timeout: 10000, enableHighAccuracy: true }
+  );
+}
+
+/* ============================================================
+   UPLOAD PHOTOS — avec vérifications taille et limite
+============================================================ */
+function handlePhotos(files) {
+  Array.from(files).forEach(file => {
+    if (!file.type.startsWith('image/'))
+      return showToast(`⚠️ "${file.name}" n'est pas une image valide.`, 'error');
+    if (file.size > MAX_IMG_SIZE)
+      return showToast(`⚠️ "${file.name}" dépasse la limite de 5 Mo.`, 'error');
+    if (formPhotos.length >= MAX_PHOTOS)
+      return showToast(`⚠️ Maximum ${MAX_PHOTOS} photos autorisées.`, 'error');
+
+    const reader = new FileReader();
+    reader.onload = e => { formPhotos.push({ name: file.name, dataUrl: e.target.result }); renderPhotoPreviews(); };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('f-photos').value = '';
+}
+
+function handleDrop(e, type) {
+  e.preventDefault();
+  document.getElementById(type === 'photo' ? 'photo-zone' : 'doc-zone').classList.remove('drag-over');
+  if (type === 'photo') handlePhotos(e.dataTransfer.files);
+  else handleDocs(e.dataTransfer.files);
+}
+
+function renderPhotoPreviews() {
+  document.getElementById('photo-preview').innerHTML = formPhotos.map((p, i) =>
+    `<div class="preview-item">
+      <img src="${p.dataUrl}" alt="${esc(p.name)}"/>
+      <button class="remove-btn" onclick="removePhoto(${i})">✕</button>
+    </div>`).join('');
+
+  const rem = MAX_PHOTOS - formPhotos.length;
+  document.getElementById('photo-counter').textContent = formPhotos.length === 0
+    ? `${MAX_PHOTOS} photos maximum`
+    : `${formPhotos.length}/${MAX_PHOTOS} · encore ${rem} possible(s)`;
+}
+
+function removePhoto(i) { formPhotos.splice(i, 1); renderPhotoPreviews(); }
+
+/* ============================================================
+   UPLOAD DOCUMENTS — avec vérifications taille et limite
+============================================================ */
+function handleDocs(files) {
+  Array.from(files).forEach(file => {
+    if (file.size > MAX_DOC_SIZE)
+      return showToast(`⚠️ "${file.name}" dépasse la limite de 10 Mo.`, 'error');
+    if (formDocs.length >= MAX_DOCS)
+      return showToast(`⚠️ Maximum ${MAX_DOCS} documents autorisés.`, 'error');
+
+    const reader = new FileReader();
+    reader.onload = e => { formDocs.push({ name: file.name, size: file.size, dataUrl: e.target.result }); renderDocPreviews(); };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('f-docs').value = '';
+}
+
+function renderDocPreviews() {
+  document.getElementById('doc-preview').innerHTML = formDocs.map((d, i) =>
+    `<div class="doc-item">
+      <span class="doc-icon">${docIcon(d.name)}</span>
+      <span class="doc-name">${esc(d.name)}</span>
+      <span class="doc-size">${formatSize(d.size)}</span>
+      <button class="remove-doc" onclick="removeDoc(${i})">✕</button>
+    </div>`).join('');
+
+  const rem = MAX_DOCS - formDocs.length;
+  document.getElementById('doc-counter').textContent = formDocs.length === 0
+    ? `${MAX_DOCS} documents maximum`
+    : `${formDocs.length}/${MAX_DOCS} · encore ${rem} possible(s)`;
+}
+
+function removeDoc(i) { formDocs.splice(i, 1); renderDocPreviews(); }
+
+/* ============================================================
+   SAUVEGARDE — Ajout ET Modification
+============================================================ */
+function saveBien() {
+  const nom  = document.getElementById('f-nom').value.trim();
+  const type = document.getElementById('f-type').value;
+  const lat  = document.getElementById('f-lat').value;
+  const lng  = document.getElementById('f-lng').value;
+
+  if (!nom)      return showToast('⚠️ Veuillez saisir un nom pour le bien.', 'error');
+  if (!type)     return showToast('⚠️ Veuillez choisir un type (terrain ou maison).', 'error');
+  if (!lat||!lng) return showToast('⚠️ Veuillez cliquer sur la carte pour définir la position GPS.', 'error');
+
+  const biens = getBiens();
+
+  if (editingId) {
+    // MODE MODIFICATION : trouver et mettre à jour
+    const idx = biens.findIndex(b => b.id === editingId);
+    if (idx === -1) return showToast('⚠️ Bien introuvable.', 'error');
+    biens[idx] = {
+      ...biens[idx],  // garde l'id et createdAt d'origine
+      nom, type,
+      description: document.getElementById('f-desc').value.trim(),
+      adresse:     document.getElementById('f-adresse').value.trim(),
+      lat: parseFloat(lat), lng: parseFloat(lng),
+      photos: [...formPhotos], docs: [...formDocs],
+      updatedAt: new Date().toISOString()
+    };
+    saveBiens(biens);
+    showToast('✅ Bien modifié avec succès !', 'success');
+  } else {
+    // MODE AJOUT : créer un nouveau bien
+    biens.push({
+      id: Date.now().toString(),
+      nom, type,
+      description: document.getElementById('f-desc').value.trim(),
+      adresse:     document.getElementById('f-adresse').value.trim(),
+      lat: parseFloat(lat), lng: parseFloat(lng),
+      photos: [...formPhotos], docs: [...formDocs],
+      createdAt: new Date().toISOString()
+    });
+    saveBiens(biens);
+    showToast('✅ Bien enregistré avec succès !', 'success');
+  }
+
+  showView('home');
+}
+
+/* ============================================================
+   RÉINITIALISATION / PRÉREMPLISSAGE DU FORMULAIRE
+   Si bienId est fourni → pré-remplir pour modification.
+   Sinon → tout vider pour un ajout.
+============================================================ */
+function resetForm(bienId) {
+  editingId = bienId || null;
+  document.getElementById('form-title').textContent    = bienId ? '✏️ Modifier le bien' : '✨ Ajouter un bien';
+  document.getElementById('form-subtitle').textContent = bienId ? 'Modifiez les informations de ce bien.' : 'Renseignez les informations de votre terrain ou maison.';
+
+  if (bienId) {
+    // Pré-remplir avec les données du bien
+    const b = getBiens().find(x => x.id === bienId);
+    if (!b) return;
+    document.getElementById('f-nom').value     = b.nom;
+    document.getElementById('f-type').value    = b.type;
+    document.getElementById('f-desc').value    = b.description || '';
+    document.getElementById('f-adresse').value = b.adresse     || '';
+    document.getElementById('f-lat').value     = b.lat         || '';
+    document.getElementById('f-lng').value     = b.lng         || '';
+    formPhotos = [...(b.photos || [])];
+    formDocs   = [...(b.docs   || [])];
+    // Positionner le marqueur sur la carte picker après initialisation
+    if (b.lat) setTimeout(() => {
+      if (mapPicker) setPickerPosition(b.lat, b.lng);
+    }, 200);
+  } else {
+    // Tout vider
+    ['f-nom','f-type','f-desc','f-adresse','f-lat','f-lng'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    formPhotos = []; formDocs = [];
+    if (mapPicker && pickerMarker) { mapPicker.removeLayer(pickerMarker); pickerMarker = null; }
+    mapPicker = null; // force re-init
+  }
+
+  renderPhotoPreviews();
+  renderDocPreviews();
+}
+
+/* ============================================================
+   PAGE DE DÉTAIL
+============================================================ */
+function renderDetail(id) {
+  const b = getBiens().find(x => x.id === id);
+  if (!b) { showView('home'); return; }
+
+  const galleryHtml = b.photos && b.photos.length
+    ? `<div class="gallery">${b.photos.map((p,i) =>
+        `<div class="gallery-item" onclick="openLightbox('${p.dataUrl}')">
+           <img src="${p.dataUrl}" alt="Photo ${i+1}" loading="lazy"/>
+         </div>`).join('')}</div>`
+    : '<p style="color:var(--muted);font-size:14px;">Aucune photo ajoutée.</p>';
+
+  const docsHtml = b.docs && b.docs.length
+    ? b.docs.map(d => `
+        <a class="doc-download" href="${d.dataUrl}" download="${esc(d.name)}">
+          <span class="doc-icon">${docIcon(d.name)}</span>
+          <div class="doc-info"><div class="doc-nm">${esc(d.name)}</div><div class="doc-sz">${formatSize(d.size)}</div></div>
+          <span class="dl-icon">⬇️</span>
+        </a>`).join('')
+    : '<p style="color:var(--muted);font-size:14px;">Aucun document ajouté.</p>';
+
+  const dateStr = new Date(b.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  document.getElementById('detail-content').innerHTML = `
+    <button class="detail-back" onclick="showView('home')">← Retour à la liste</button>
+    <div class="detail-header">
+      <div>
+        <span class="badge badge-${b.type}" style="margin-bottom:8px">${b.type === 'terrain' ? '🌿 Terrain' : '🏠 Maison'}</span>
+        <h1>${esc(b.nom)}</h1>
+      </div>
+      <div class="detail-header-right">
+        <button class="btn btn-ghost" onclick="showView('form','${b.id}')">✏️ Modifier</button>
+        <button class="btn btn-danger" onclick="deleteBien('${b.id}')">🗑️ Supprimer</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-card">
+        <div class="detail-card-title">📋 Informations</div>
+        <div class="detail-info-row"><span class="detail-info-label">Type</span><span class="detail-info-val">${b.type === 'terrain' ? '🌿 Terrain' : '🏠 Maison'}</span></div>
+        ${b.adresse ? `<div class="detail-info-row"><span class="detail-info-label">Adresse</span><span class="detail-info-val">📍 ${esc(b.adresse)}</span></div>` : ''}
+        ${b.lat     ? `<div class="detail-info-row"><span class="detail-info-label">GPS</span><span class="detail-info-val">${b.lat.toFixed(5)}, ${b.lng.toFixed(5)}</span></div>` : ''}
+        <div class="detail-info-row"><span class="detail-info-label">Ajouté le</span><span class="detail-info-val">${dateStr}</span></div>
+        ${b.description ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text2)">${esc(b.description)}</div>` : ''}
+      </div>
+      <div class="detail-card">
+        <div class="detail-card-title">📍 Localisation</div>
+        ${b.lat ? `<div id="map-detail"></div>` : `<p style="color:var(--muted);font-size:14px">Position non renseignée.</p>`}
+      </div>
+    </div>
+    <div class="detail-card" style="margin-top:16px">
+      <div class="detail-card-title">📸 Photos (${b.photos ? b.photos.length : 0})</div>
+      ${galleryHtml}
+    </div>
+    <div class="detail-card" style="margin-top:16px">
+      <div class="detail-card-title">📁 Documents (${b.docs ? b.docs.length : 0})</div>
+      ${docsHtml}
+    </div>
+  `;
+
+  if (b.lat) {
+    setTimeout(() => {
+      if (mapDetail) { mapDetail.remove(); mapDetail = null; }
+      mapDetail = L.map('map-detail').setView([b.lat, b.lng], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(mapDetail);
+      L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b.type) }).addTo(mapDetail)
+        .bindPopup(`<strong>${esc(b.nom)}</strong>`).openPopup();
+    }, 80);
+  }
+}
+
+/* ============================================================
+   SUPPRESSION
+============================================================ */
+function deleteBien(id) {
+  if (!confirm('Supprimer ce bien définitivement ? Cette action est irréversible.')) return;
+  saveBiens(getBiens().filter(b => b.id !== id));
+  showToast('🗑️ Bien supprimé.', 'success');
+  showView('home');
+}
+
+/* ============================================================
+   LIGHTBOX
+============================================================ */
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightbox-img').src = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+/* ============================================================
+   TOASTS
+============================================================ */
+function showToast(msg, type = '') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.transition = 'opacity .3s ease';
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}
+
+/* ============================================================
+   UTILITAIRES
+============================================================ */
+function docIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  if (ext === 'pdf') return '📄';
+  if (['jpg','jpeg','png','webp','gif'].includes(ext)) return '🖼️';
+  if (['doc','docx'].includes(ext)) return '📝';
+  return '📎';
+}
+function formatSize(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024) return bytes + ' o';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' Ko';
+  return (bytes / 1048576).toFixed(1) + ' Mo';
+}
+
+/* ============================================================
+   EXPORT JSON
+   Crée un fichier .json téléchargeable avec toutes les données
+============================================================ */
+function exportJSON() {
+  const biens = getBiens();
+  if (!biens.length) return showToast('⚠️ Aucun bien à exporter.', 'error');
+
+  const dataStr = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), biens }, null, 2);
+  const blob    = new Blob([dataStr], { type: 'application/json' });
+  const url     = URL.createObjectURL(blob);
+  const a       = document.createElement('a');
+  a.href        = url;
+  a.download    = `immofamille_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`✅ ${biens.length} bien(s) exporté(s) !`, 'success');
+}
+
+/* ============================================================
+   IMPORT JSON
+   Lit un fichier .json, valide la structure, et fusionne
+   avec les données existantes (sans doublon grâce aux IDs).
+============================================================ */
+function importJSON(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.biens || !Array.isArray(data.biens))
+        return showToast('⚠️ Fichier invalide. Structure attendue : { biens: [...] }', 'error');
+
+      const existing    = getBiens();
+      const existingIds = new Set(existing.map(b => b.id));
+      const toImport    = data.biens.filter(b => b.id && b.nom && !existingIds.has(b.id));
+
+      saveBiens([...existing, ...toImport]);
+      showToast(`✅ ${toImport.length} bien(s) importé(s) sur ${data.biens.length} !`, 'success');
+
+      if (document.getElementById('view-home').classList.contains('active')) {
+        refreshMapMarkers();
+        renderList();
+      }
+    } catch(err) {
+      showToast('⚠️ Erreur : fichier JSON corrompu ou illisible.', 'error');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+/* ============================================================
+   INITIALISATION
+============================================================ */
+window.addEventListener('load', () => {
+  initTheme();       // Appliquer le thème sauvegardé en premier
+  showView('home');  // Afficher la page principale
+});
+</script>
+</body>
+</html>
