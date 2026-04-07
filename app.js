@@ -232,6 +232,10 @@ function showView(name, bienId) {
     if (target) target.classList.add('active');
     hideLoader();
 
+    // Afficher le FAB seulement sur la page d'accueil
+    const fab = document.getElementById('fab-add');
+    if (fab) fab.style.display = (name === 'home') ? '' : 'none';
+
     if (name === 'home') {
       initMap();
       renderList();

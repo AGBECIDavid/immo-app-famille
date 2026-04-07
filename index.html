@@ -2,7 +2,8 @@
 <html lang="fr" data-theme="light">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
+  <meta name="theme-color" content="#C9A96E"/>
   <title>ImmoFamille — Gestion de Biens</title>
 
   <!-- Leaflet CSS -->
@@ -41,6 +42,9 @@
     <button class="btn btn-primary" onclick="showView('form', null)">＋ Ajouter</button>
   </div>
 </nav>
+
+<!-- Bouton flottant pour ajouter (visible sur mobile) -->
+<button class="fab" id="fab-add" onclick="showView('form', null)" title="Ajouter un bien" aria-label="Ajouter un bien">＋</button>
 
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">

@@ -610,16 +610,182 @@ textarea.form-control { min-height: 90px; resize: vertical; }
 }
 
 /* ============================================================
-   RESPONSIVE
+   📱 BOUTON FLOTTANT (FAB) — toujours visible sur mobile
+============================================================ */
+.fab {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  font-size: 28px;
+  font-weight: 300;
+  box-shadow: 0 6px 20px rgba(201,169,110,.5);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+.fab:hover, .fab:active {
+  background: var(--accent-dk);
+  transform: scale(1.05);
+}
+
+/* ============================================================
+   📱 RESPONSIVE — Tablette (max 900px)
 ============================================================ */
 @media (max-width: 900px) {
-  .home-layout { grid-template-columns: 1fr; height: auto; }
-  .panel { max-height: 50vh; }
-  #map { height: 50vh; }
+  .home-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .panel {
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  #map { height: 45vh; min-height: 320px; }
   .form-row { grid-template-columns: 1fr; }
   .detail-grid { grid-template-columns: 1fr; }
-  .checklist-fields { grid-template-columns: 1fr; }
-  .topbar { padding: 0 12px; }
+}
+
+/* ============================================================
+   📱 RESPONSIVE — Mobile (max 640px)
+============================================================ */
+@media (max-width: 640px) {
+  /* TOPBAR : on cache les boutons texte, on ne garde que les icônes */
+  .topbar {
+    padding: 0 12px;
+    height: 56px;
+  }
+  .topbar-logo { font-size: 17px; }
+  .logo-icon { width: 30px; height: 30px; font-size: 15px; }
   .topbar-actions { gap: 4px; }
-  .btn { padding: 7px 11px; font-size: 13px; }
+  .topbar-sep { display: none; }
+
+  /* On masque les boutons "Carte" et "+ Ajouter" de la topbar
+     car ils sont remplacés par le FAB et la nav du bas */
+  .topbar .btn-ghost,
+  .topbar .btn-primary {
+    display: none;
+  }
+
+  /* Le bouton flottant s'affiche en mobile */
+  .fab { display: flex; }
+
+  /* PAGE ACCUEIL */
+  .panel-header { padding: 12px; }
+  .panel-title { font-size: 16px; }
+  .filters {
+    padding: 10px 12px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .filter-btn { flex-shrink: 0; }
+  .biens-list { padding: 10px 12px 90px; } /* padding-bas pour ne pas être caché par le FAB */
+
+  /* CARTE */
+  #map { height: 50vh; min-height: 280px; }
+
+  /* FORMULAIRE — plus compact */
+  .form-page { padding: 18px 14px 100px; }
+  .form-page-header h1 { font-size: 22px; }
+  .form-card { padding: 16px; margin-bottom: 14px; }
+  .form-section-title { font-size: 13px; margin-bottom: 12px; }
+  .form-control {
+    padding: 12px 13px;       /* +grand pour le doigt */
+    font-size: 16px;          /* 16px évite le zoom auto iOS */
+  }
+  textarea.form-control { min-height: 80px; }
+
+  /* CHECKLIST DOCUMENTS — empilé verticalement */
+  .checklist-fields { grid-template-columns: 1fr; gap: 6px; }
+  .checklist-item { padding: 14px; }
+  .checklist-checkbox {
+    width: 22px; height: 22px;  /* +grand pour le doigt */
+  }
+  .checklist-label { font-size: 15px; }
+  .checklist-input { padding: 10px; font-size: 14px; }
+
+  /* CARTE PICKER */
+  #map-picker { height: 240px; }
+  .geo-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .btn-geo { width: 100%; justify-content: center; text-align: center; padding: 12px; }
+  .map-hint { text-align: center; }
+  .coords-display { grid-template-columns: 1fr; gap: 8px; }
+  .dms-row { flex-direction: column; align-items: stretch; }
+  .dms-row .btn-geo { width: 100%; }
+
+  /* ZONES UPLOAD */
+  .upload-zone { padding: 20px 14px; }
+  .upload-icon { font-size: 28px; }
+  .preview-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+  /* ACTIONS FORMULAIRE — sticky en bas */
+  .form-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+    padding: 12px 0;
+    margin: 0 -14px -100px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    z-index: 100;
+  }
+  .form-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px;
+    font-size: 15px;
+  }
+
+  /* PAGE DÉTAIL */
+  .detail-page { padding: 18px 14px 90px; }
+  .detail-header { flex-direction: column; gap: 14px; }
+  .detail-header-left h1 { font-size: 24px; }
+  .detail-header-right {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .detail-header-right .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px;
+  }
+  .detail-header-right .btn-pdf {
+    grid-column: 1 / -1;  /* PDF prend toute la largeur */
+  }
+  .detail-card { padding: 16px; }
+  #map-detail { height: 220px; }
+  .gallery { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+  /* TOASTS — pleine largeur en haut */
+  .toast-container {
+    top: 70px; left: 12px; right: 12px;
+  }
+  .toast { min-width: 0; max-width: none; font-size: 13px; }
+
+  /* LIGHTBOX */
+  .lightbox { padding: 12px; }
+  .lightbox-close { top: 12px; right: 12px; }
+}
+
+/* ============================================================
+   📱 RESPONSIVE — Très petit mobile (max 380px)
+============================================================ */
+@media (max-width: 380px) {
+  .topbar-logo .logo-text-main { display: none; }  /* juste l'icône */
+  .preview-grid { grid-template-columns: repeat(2, 1fr); }
+  .detail-header-right { grid-template-columns: 1fr; }
+  .detail-header-right .btn-pdf { grid-column: auto; }
 }
