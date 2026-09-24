@@ -1,7 +1,7 @@
 /* ============================================================
    ImmoFamille — app.js
    Application de gestion de biens immobiliers
-   Version propre et corrigée — usage personnel/famille
+   Espace familial partagé (Supabase) — 5 membres maximum
 ============================================================ */
 
 'use strict';
@@ -14,7 +14,12 @@ const MAX_DOCS     = 5;
 const MAX_IMG_SIZE = 5  * 1024 * 1024;   // 5 Mo
 const MAX_DOC_SIZE = 10 * 1024 * 1024;   // 10 Mo
 
-const STORAGE_KEY  = 'immofamille_biens';
+const MAX_MEMBRES  = 5;                   // admin compris (vérifié aussi par la base)
+const BUCKET       = 'fichiers';          // bucket Supabase Storage (privé)
+const SIGNED_URL_TTL = 3600;              // durée de validité des liens photos (s)
+
+const STORAGE_KEY  = 'immofamille_biens';          // ancienne version (localStorage)
+const MIGRATION_KEY= 'immofamille_migration_faite';
 const THEME_KEY    = 'immofamille_theme';
 
 const ALLOWED_IMG_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -51,6 +56,14 @@ let pickerMarker  = null;
 let mapMarkers    = {};
 let formPhotos    = [];
 let formDocs      = [];
+let saving        = false;
+
+// Supabase
+let sb            = null;   // client Supabase
+let session       = null;   // session de connexion
+let currentMember = null;   // ligne "membres" de l'utilisateur connecté
+let biensCache    = [];     // biens chargés depuis la base
+let membresCache  = [];     // (admin) toutes les demandes / membres
 
 /* ============================================================
    🔐 SÉCURITÉ — Échappement et nettoyage
@@ -165,32 +178,122 @@ function applyDMS() {
 }
 
 /* ============================================================
-   💾 STOCKAGE — localStorage avec try/catch
+   💾 STOCKAGE — Supabase (base partagée par la famille)
+   getBiens() reste synchrone : il lit le cache chargé par loadBiens().
 ============================================================ */
 function getBiens() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.error('Erreur lecture localStorage :', e);
-    showToast('⚠️ Impossible de lire les données sauvegardées.', 'error');
-    return [];
-  }
+  return biensCache;
 }
 
-function saveBiens(biens) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(biens));
-    return true;
-  } catch (e) {
-    console.error('Erreur écriture localStorage :', e);
-    if (e.name === 'QuotaExceededError' || e.code === 22) {
-      showToast('⚠️ Stockage plein ! Supprimez des biens ou réduisez le nombre de photos.', 'error');
-    } else {
-      showToast('⚠️ Erreur de sauvegarde : ' + e.message, 'error');
-    }
+function rowToBien(r) {
+  return {
+    id:          r.id,
+    nom:         r.nom,
+    type:        r.type,
+    description: r.description || '',
+    adresse:     r.adresse || '',
+    lat:         r.lat,
+    lng:         r.lng,
+    legalDocs:   Array.isArray(r.legal_docs) ? r.legal_docs : [],
+    photos:      Array.isArray(r.photos) ? r.photos : [],
+    docs:        Array.isArray(r.docs)   ? r.docs   : [],
+    createdBy:   r.created_by,
+    createdAt:   r.created_at,
+    updatedAt:   r.updated_at
+  };
+}
+
+async function loadBiens() {
+  if (!sb) return false;
+  const { data, error } = await sb.from('biens').select('*').order('created_at', { ascending: false });
+  if (error) {
+    console.error('Erreur chargement biens :', error);
+    showToast('⚠️ Impossible de charger les biens : ' + error.message, 'error');
     return false;
   }
+  const biens = data.map(rowToBien);
+
+  // Liens temporaires pour afficher les photos (bucket privé)
+  const paths = biens.flatMap(b => b.photos.map(p => p.path)).filter(Boolean);
+  if (paths.length) {
+    const { data: signed, error: signErr } = await sb.storage.from(BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
+    if (signErr) console.error('Erreur liens photos :', signErr);
+    const urls = new Map((signed || []).filter(x => x.signedUrl).map(x => [x.path, x.signedUrl]));
+    biens.forEach(b => b.photos.forEach(p => { p.url = urls.get(p.path) || ''; }));
+  }
+
+  biensCache = biens;
+  return true;
+}
+
+function newId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+// Les clés Supabase Storage n'acceptent que des caractères simples
+function storageSafeName(name) {
+  return String(name || 'fichier')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .slice(-100) || 'fichier';
+}
+
+function photoSrc(p) {
+  return p.url || p.previewUrl || p.dataUrl || '';
+}
+
+/**
+ * Envoie dans Storage les fichiers qui n'y sont pas encore (ceux qui ont un `file`).
+ * `uploaded` reçoit les chemins créés, pour pouvoir annuler en cas d'échec.
+ */
+async function uploadFiles(bienId, kind, items, uploaded) {
+  const out = [];
+  for (const it of items) {
+    if (!it.path) {
+      if (!it.file) continue;
+      const path = `biens/${bienId}/${kind}/${newId()}-${storageSafeName(it.name)}`;
+      const { error } = await sb.storage.from(BUCKET).upload(path, it.file, {
+        contentType: it.file.type || 'application/octet-stream',
+        upsert: false
+      });
+      if (error) throw new Error(`envoi de "${it.name}" impossible (${error.message})`);
+      it.path = path;
+      uploaded.push({ item: it, path });
+    }
+    out.push(kind === 'photos'
+      ? { name: it.name, path: it.path }
+      : { name: it.name, size: it.size, path: it.path });
+  }
+  return out;
+}
+
+async function removeStoragePaths(paths) {
+  const list = paths.filter(Boolean);
+  if (!list.length) return;
+  const { error } = await sb.storage.from(BUCKET).remove(list);
+  if (error) console.warn('Fichiers non supprimés :', error.message);
+}
+
+async function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function pathToDataUrl(path) {
+  const { data, error } = await sb.storage.from(BUCKET).download(path);
+  if (error) throw error;
+  return blobToDataUrl(data);
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const res = await fetch(dataUrl);
+  return res.blob();
 }
 
 /* ============================================================
@@ -224,13 +327,34 @@ function hideLoader() { document.getElementById('loader').classList.remove('visi
 /* ============================================================
    🧭 NAVIGATION ENTRE VUES
 ============================================================ */
+const APP_VIEWS = ['home', 'form', 'detail', 'admin'];
+
+function isApproved() { return !!(currentMember && currentMember.statut === 'approuve'); }
+function isAdmin()    { return isApproved() && currentMember.role === 'admin'; }
+
+// Connecté mais pas (encore) validé → on garde l'écran de statut (attente / refus)
+function fallbackView() {
+  return session ? 'message' : 'auth';
+}
+
+function goHome() {
+  showView(isApproved() ? 'home' : fallbackView());
+}
+
 function showView(name, bienId) {
+  // Garde-fous : pages réservées aux membres validés / à l'admin
+  if (APP_VIEWS.includes(name) && !isApproved()) name = fallbackView();
+  if (name === 'admin' && !isAdmin()) name = 'home';
+
+  document.body.classList.toggle('auth-mode', !APP_VIEWS.includes(name));
+
   showLoader();
   setTimeout(() => {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const target = document.getElementById('view-' + name);
     if (target) target.classList.add('active');
     hideLoader();
+    window.scrollTo(0, 0);
 
     // Afficher le FAB seulement sur la page d'accueil
     const fab = document.getElementById('fab-add');
@@ -239,11 +363,17 @@ function showView(name, bienId) {
     if (name === 'home') {
       initMap();
       renderList();
+      // Recharger pour voir les ajouts des autres membres
+      loadBiens().then(ok => { if (ok) { refreshMapMarkers(); renderList(); } });
+      if (isAdmin()) loadMembres();
     } else if (name === 'form') {
       resetForm(bienId);
       initMapPicker();
     } else if (name === 'detail' && bienId) {
       renderDetail(bienId);
+    } else if (name === 'admin') {
+      renderAdmin();
+      loadMembres().then(renderAdmin);
     }
   }, 120);
 }
@@ -397,7 +527,7 @@ function renderList() {
     const t       = typeInfo(b.type);
     const statut  = getStatut(b);
     const imgHtml = b.photos && b.photos.length
-      ? `<img class="bien-card-img" src="${b.photos[0].dataUrl}" alt="${esc(b.nom)}" loading="lazy"/>`
+      ? `<img class="bien-card-img" src="${escAttr(photoSrc(b.photos[0]))}" alt="${esc(b.nom)}" loading="lazy"/>`
       : `<div class="bien-card-img-placeholder">${t.emoji}</div>`;
 
     return `<div class="bien-card" id="card-${b.id}" onclick="showView('detail','${b.id}')">
@@ -505,14 +635,10 @@ function handlePhotos(files) {
       return showToast(`⚠️ Maximum ${MAX_PHOTOS} photos.`, 'error');
     }
 
-    const reader = new FileReader();
-    reader.onload = e => {
-      formPhotos.push({ name: sanitizeFileName(file.name), dataUrl: e.target.result });
-      renderPhotoPreviews();
-    };
-    reader.onerror = () => showToast('⚠️ Erreur de lecture du fichier.', 'error');
-    reader.readAsDataURL(file);
+    // Le fichier sera envoyé dans Supabase au moment de l'enregistrement
+    formPhotos.push({ name: sanitizeFileName(file.name), file, previewUrl: URL.createObjectURL(file) });
   });
+  renderPhotoPreviews();
   document.getElementById('f-photos').value = '';
 }
 
@@ -528,7 +654,7 @@ function renderPhotoPreviews() {
   const container = document.getElementById('photo-preview');
   container.innerHTML = formPhotos.map((p, i) =>
     `<div class="preview-item">
-      <img src="${p.dataUrl}" alt="${esc(p.name)}"/>
+      <img src="${escAttr(photoSrc(p))}" alt="${esc(p.name)}"/>
       <button type="button" class="remove-btn" onclick="removePhoto(${i})">✕</button>
     </div>`
   ).join('');
@@ -540,7 +666,8 @@ function renderPhotoPreviews() {
 }
 
 function removePhoto(i) {
-  formPhotos.splice(i, 1);
+  const [removed] = formPhotos.splice(i, 1);
+  if (removed && removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
   renderPhotoPreviews();
 }
 
@@ -559,18 +686,9 @@ function handleDocs(files) {
       return showToast(`⚠️ Maximum ${MAX_DOCS} documents.`, 'error');
     }
 
-    const reader = new FileReader();
-    reader.onload = e => {
-      formDocs.push({
-        name:    sanitizeFileName(file.name),
-        size:    file.size,
-        dataUrl: e.target.result
-      });
-      renderDocPreviews();
-    };
-    reader.onerror = () => showToast('⚠️ Erreur de lecture du fichier.', 'error');
-    reader.readAsDataURL(file);
+    formDocs.push({ name: sanitizeFileName(file.name), size: file.size, file });
   });
+  renderDocPreviews();
   document.getElementById('f-docs').value = '';
 }
 
@@ -694,7 +812,9 @@ function collectLegalDocs() {
 /* ============================================================
    💾 SAUVEGARDE — Ajout & Modification
 ============================================================ */
-function saveBien() {
+async function saveBien() {
+  if (saving) return;
+
   const nom  = document.getElementById('f-nom').value.trim();
   const type = document.getElementById('f-type').value;
   const desc = document.getElementById('f-desc').value.trim();
@@ -712,54 +832,63 @@ function saveBien() {
   if (isNaN(latF) || latF < -90  || latF > 90)  return showToast('⚠️ Latitude invalide.', 'error');
   if (isNaN(lngF) || lngF < -180 || lngF > 180) return showToast('⚠️ Longitude invalide.', 'error');
 
-  const biens = getBiens();
-  let success;
+  const old = editingId ? getBiens().find(b => b.id === editingId) : null;
+  if (editingId && !old) return showToast('⚠️ Bien introuvable.', 'error');
 
-  if (editingId) {
-    // MODIFICATION
-    const idx = biens.findIndex(b => b.id === editingId);
-    if (idx === -1) return showToast('⚠️ Bien introuvable.', 'error');
+  const id       = editingId || newId();
+  const uploaded = [];
+  const saveBtn  = document.getElementById('btn-save');
+  saving = true;
+  showLoader();
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Enregistrement…'; }
 
-    biens[idx] = {
-      ...biens[idx],
-      nom:         sanitizeInput(nom),
+  try {
+    const photos = await uploadFiles(id, 'photos', formPhotos, uploaded);
+    const docs   = await uploadFiles(id, 'docs',   formDocs,   uploaded);
+
+    const row = {
+      nom:         sanitizeInput(nom).slice(0, 200),
       type,
       description: sanitizeInput(desc),
-      adresse:     sanitizeInput(document.getElementById('f-adresse').value.trim()),
+      adresse:     sanitizeInput(document.getElementById('f-adresse').value.trim()).slice(0, 500),
       lat:         latF,
       lng:         lngF,
-      photos:      [...formPhotos],
-      docs:        [...formDocs],
-      legalDocs:   collectLegalDocs(),
-      updatedAt:   new Date().toISOString()
+      legal_docs:  collectLegalDocs(),
+      photos,
+      docs
     };
-    success = saveBiens(biens);
-    if (success) showToast('✅ Bien modifié !', 'success');
-  } else {
-    // AJOUT
-    biens.push({
-      id:          Date.now().toString(),
-      nom:         sanitizeInput(nom),
-      type,
-      description: sanitizeInput(desc),
-      adresse:     sanitizeInput(document.getElementById('f-adresse').value.trim()),
-      lat:         latF,
-      lng:         lngF,
-      photos:      [...formPhotos],
-      docs:        [...formDocs],
-      legalDocs:   collectLegalDocs(),
-      createdAt:   new Date().toISOString()
-    });
-    success = saveBiens(biens);
-    if (success) showToast('✅ Bien enregistré !', 'success');
-  }
 
-  if (success) {
-    // Réinitialiser l'état d'édition AVANT navigation
-    editingId = null;
+    let res;
+    if (editingId) {
+      row.updated_at = new Date().toISOString();
+      res = await sb.from('biens').update(row).eq('id', id).select('id');
+    } else {
+      res = await sb.from('biens').insert({ id, ...row }).select('id');
+    }
+    if (res.error) throw new Error(res.error.message);
+    if (!res.data || !res.data.length) throw new Error('accès refusé (êtes-vous toujours membre ?)');
+
+    // Supprimer les fichiers retirés pendant la modification
+    if (old) {
+      const kept = new Set([...photos, ...docs].map(f => f.path));
+      await removeStoragePaths([...old.photos, ...old.docs].map(f => f.path).filter(p => !kept.has(p)));
+    }
+
+    showToast(editingId ? '✅ Bien modifié !' : '✅ Bien enregistré !', 'success');
+    editingId  = null;
     formPhotos = [];
-    formDocs = [];
+    formDocs   = [];
     showView('home');
+  } catch (e) {
+    console.error('Erreur sauvegarde :', e);
+    // Annuler les envois de cette tentative pour ne pas laisser de fichiers orphelins
+    await removeStoragePaths(uploaded.map(u => u.path));
+    uploaded.forEach(u => { delete u.item.path; });
+    showToast('⚠️ Enregistrement impossible : ' + e.message, 'error');
+  } finally {
+    saving = false;
+    hideLoader();
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Enregistrer'; }
   }
 }
 
@@ -845,17 +974,17 @@ function renderDetail(id) {
   // Galerie photos
   const galleryHtml = b.photos && b.photos.length
     ? `<div class="gallery">${b.photos.map((p, i) =>
-        `<div class="gallery-item" onclick="openLightbox('${p.dataUrl}')">
-           <img src="${p.dataUrl}" alt="Photo ${i+1}" loading="lazy"/>
+        `<div class="gallery-item" onclick="openBienPhoto('${b.id}', ${i})">
+           <img src="${escAttr(photoSrc(p))}" alt="Photo ${i+1}" loading="lazy"/>
          </div>`).join('')}</div>`
     : `<p style="color:var(--muted);font-size:14px">Aucune photo.</p>`;
 
   // Documents joints
   const docsHtml = b.docs && b.docs.length
-    ? `<div class="detail-doc-list">${b.docs.map(d =>
+    ? `<div class="detail-doc-list">${b.docs.map((d, i) =>
         `<div class="doc-item">
            <span class="doc-icon">${docIcon(d.name)}</span>
-           <span class="doc-name"><a href="${d.dataUrl}" download="${escAttr(d.name)}" style="color:inherit;text-decoration:none">${esc(d.name)}</a></span>
+           <span class="doc-name"><a href="#" onclick="downloadDoc('${b.id}', ${i}); return false;" style="color:inherit;text-decoration:none">${esc(d.name)}</a></span>
            <span class="doc-size">${formatSize(d.size)}</span>
          </div>`).join('')}</div>`
     : `<p style="color:var(--muted);font-size:14px">Aucun fichier joint.</p>`;
@@ -893,7 +1022,7 @@ function renderDetail(id) {
       <div class="detail-header-right">
         <button class="btn btn-pdf" id="btn-pdf-export" onclick="exportBienPDF('${b.id}')">📄 PDF</button>
         <button class="btn btn-ghost" onclick="showView('form','${b.id}')">✏️ Modifier</button>
-        <button class="btn btn-danger" onclick="deleteBien('${b.id}')">🗑️ Supprimer</button>
+        ${isAdmin() ? `<button class="btn btn-danger" onclick="deleteBien('${b.id}')">🗑️ Supprimer</button>` : ''}
       </div>
     </div>
 
@@ -904,6 +1033,7 @@ function renderDetail(id) {
         ${b.adresse ? `<div class="detail-info-row"><span class="detail-info-label">Adresse</span><span class="detail-info-val">📍 ${esc(b.adresse)}</span></div>` : ''}
         ${b.lat != null ? `<div class="detail-info-row"><span class="detail-info-label">GPS</span><span class="detail-info-val">${b.lat.toFixed(5)}, ${b.lng.toFixed(5)}</span></div>` : ''}
         <div class="detail-info-row"><span class="detail-info-label">Ajouté le</span><span class="detail-info-val">${dateStr}</span></div>
+        ${b.createdBy ? `<div class="detail-info-row"><span class="detail-info-label">Ajouté par</span><span class="detail-info-val">${esc(membreLabel(b.createdBy))}</span></div>` : ''}
         ${b.description ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text2)">${esc(b.description)}</div>` : ''}
       </div>
       <div class="detail-card">
@@ -952,13 +1082,47 @@ function renderDetail(id) {
 /* ============================================================
    🗑️ SUPPRESSION
 ============================================================ */
-function deleteBien(id) {
+async function deleteBien(id) {
+  if (!isAdmin()) return showToast('⚠️ Seul l\'administrateur peut supprimer un bien.', 'error');
+  const b = getBiens().find(x => x.id === id);
+  if (!b) return showToast('⚠️ Bien introuvable.', 'error');
   if (!confirm('Supprimer ce bien définitivement ? Cette action est irréversible.')) return;
-  const biens = getBiens().filter(b => b.id !== id);
-  if (saveBiens(biens)) {
-    showToast('🗑️ Bien supprimé.', 'success');
-    showView('home');
+
+  showLoader();
+  const { data, error } = await sb.from('biens').delete().eq('id', id).select('id');
+  hideLoader();
+  if (error || !data || !data.length) {
+    return showToast('⚠️ Suppression impossible : ' + (error ? error.message : 'accès refusé'), 'error');
   }
+  await removeStoragePaths([...b.photos, ...b.docs].map(f => f.path));
+  showToast('🗑️ Bien supprimé.', 'success');
+  showView('home');
+}
+
+/* ============================================================
+   📎 PHOTOS & DOCUMENTS DU DÉTAIL
+============================================================ */
+function openBienPhoto(bienId, i) {
+  const b = getBiens().find(x => x.id === bienId);
+  const p = b && b.photos[i];
+  if (p) openLightbox(photoSrc(p));
+}
+
+async function downloadDoc(bienId, i) {
+  const b = getBiens().find(x => x.id === bienId);
+  const d = b && b.docs[i];
+  if (!d) return;
+  if (!d.path) return showToast('⚠️ Fichier indisponible.', 'error');
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(d.path, 60, { download: d.name });
+  if (error) return showToast('⚠️ Téléchargement impossible : ' + error.message, 'error');
+  window.location.assign(data.signedUrl);
+}
+
+// "prenom nom" si l'admin connaît le membre, sinon l'e-mail
+function membreLabel(email) {
+  const m = membresCache.find(x => x.email === email) ||
+            (currentMember && currentMember.email === email ? currentMember : null);
+  return m ? `${m.prenom} ${m.nom}` : email;
 }
 
 /* ============================================================
@@ -1010,14 +1174,30 @@ function formatSize(bytes) {
 }
 
 /* ============================================================
-   📤 EXPORT JSON
+   📤 EXPORT JSON — sauvegarde complète (fichiers inclus)
 ============================================================ */
-function exportJSON() {
+async function exportJSON() {
   const biens = getBiens();
   if (!biens.length) return showToast('⚠️ Aucun bien à exporter.', 'error');
 
+  showLoader();
   try {
-    const dataStr = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), biens }, null, 2);
+    // On embarque photos et documents pour que le fichier soit une vraie sauvegarde
+    const out = [];
+    for (const b of biens) {
+      const photos = [];
+      for (const p of b.photos) {
+        if (p.path) photos.push({ name: p.name, dataUrl: await pathToDataUrl(p.path) });
+      }
+      const docs = [];
+      for (const d of b.docs) {
+        if (d.path) docs.push({ name: d.name, size: d.size, dataUrl: await pathToDataUrl(d.path) });
+      }
+      const { createdBy, ...rest } = b;
+      out.push({ ...rest, photos, docs });
+    }
+
+    const dataStr = JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), biens: out }, null, 2);
     const blob    = new Blob([dataStr], { type: 'application/json' });
     const url     = URL.createObjectURL(blob);
     const a       = document.createElement('a');
@@ -1030,59 +1210,136 @@ function exportJSON() {
     showToast(`✅ ${biens.length} bien(s) exporté(s) !`, 'success');
   } catch (e) {
     showToast('⚠️ Erreur d\'export : ' + e.message, 'error');
+  } finally {
+    hideLoader();
   }
 }
 
 /* ============================================================
-   📥 IMPORT JSON
+   📥 IMPORT JSON (et migration depuis l'ancienne version locale)
 ============================================================ */
+const VALID_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Envoie une liste de biens (format export) dans la base. Retourne le nombre importé. */
+async function importBiensList(list) {
+  await loadBiens();   // pour ne pas réimporter un bien déjà présent
+  const existingIds = new Set(getBiens().map(b => b.id));
+  let imported = 0;
+
+  for (const b of list) {
+    if (!b || typeof b.nom !== 'string' || b.nom.trim() === '') continue;
+    if (!Object.keys(TYPE_CONFIG).includes(b.type)) continue;
+    if (b.id && existingIds.has(String(b.id))) continue;
+
+    const lat = b.lat != null ? parseFloat(b.lat) : null;
+    const lng = b.lng != null ? parseFloat(b.lng) : null;
+    if (lat != null && (isNaN(lat) || lat < -90  || lat > 90))  continue;
+    if (lng != null && (isNaN(lng) || lng < -180 || lng > 180)) continue;
+
+    const id       = VALID_ID.test(String(b.id || '')) ? String(b.id) : newId();
+    const uploaded = [];
+    try {
+      const toItems = (arr, max) => (Array.isArray(arr) ? arr : [])
+        .filter(f => f && typeof f.dataUrl === 'string' && f.dataUrl.startsWith('data:'))
+        .slice(0, max);
+      const photoItems = [];
+      for (const f of toItems(b.photos, MAX_PHOTOS)) {
+        const blob = await dataUrlToBlob(f.dataUrl);
+        if (!ALLOWED_IMG_MIMES.includes(blob.type)) continue;
+        photoItems.push({ name: sanitizeFileName(f.name || 'photo'), file: blob });
+      }
+      const docItems = [];
+      for (const f of toItems(b.docs, MAX_DOCS)) {
+        const blob = await dataUrlToBlob(f.dataUrl);
+        if (!ALLOWED_DOC_MIMES.includes(blob.type)) continue;
+        docItems.push({ name: sanitizeFileName(f.name || 'document'), size: blob.size, file: blob });
+      }
+
+      const legalDocs = (Array.isArray(b.legalDocs) ? b.legalDocs : [])
+        .filter(d => d && LEGAL_DOCS_LIST.some(def => def.id === d.id))
+        .map(d => ({
+          id:        d.id,
+          label:     LEGAL_DOCS_LIST.find(def => def.id === d.id).label,
+          present:   !!d.present,
+          reference: sanitizeInput(d.reference || '').slice(0, 200),
+          detenteur: sanitizeInput(d.detenteur || '').slice(0, 200)
+        }));
+
+      const row = {
+        id,
+        nom:         sanitizeInput(b.nom).slice(0, 200),
+        type:        b.type,
+        description: sanitizeInput(b.description || '').slice(0, 5000),
+        adresse:     sanitizeInput(b.adresse || '').slice(0, 500),
+        lat, lng,
+        legal_docs:  legalDocs,
+        photos:      await uploadFiles(id, 'photos', photoItems, uploaded),
+        docs:        await uploadFiles(id, 'docs',   docItems,   uploaded)
+      };
+      const created = new Date(b.createdAt);
+      if (!isNaN(created)) row.created_at = created.toISOString();
+
+      const { error } = await sb.from('biens').insert(row);
+      if (error) throw new Error(error.message);
+      existingIds.add(id);
+      imported++;
+    } catch (e) {
+      console.error(`Import de "${b.nom}" impossible :`, e);
+      await removeStoragePaths(uploaded.map(u => u.path));
+    }
+  }
+  return imported;
+}
+
 function importJSON(input) {
   const file = input.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
+    let data;
     try {
-      const data = JSON.parse(e.target.result);
-      if (!data.biens || !Array.isArray(data.biens)) {
-        return showToast('⚠️ Fichier invalide.', 'error');
-      }
-
-      const existing    = getBiens();
-      const existingIds = new Set(existing.map(b => b.id));
-
-      const toImport = data.biens.filter(b => {
-        if (!b.id || typeof b.id !== 'string') return false;
-        if (!b.nom || typeof b.nom !== 'string' || b.nom.trim() === '') return false;
-        if (!Object.keys(TYPE_CONFIG).includes(b.type)) return false;
-        if (existingIds.has(b.id)) return false;
-        b.nom         = sanitizeInput(String(b.nom).slice(0, 200));
-        b.description = sanitizeInput(String(b.description || '').slice(0, 2000));
-        b.adresse     = sanitizeInput(String(b.adresse || '').slice(0, 500));
-        if (b.lat != null) {
-          b.lat = parseFloat(b.lat);
-          if (isNaN(b.lat) || b.lat < -90 || b.lat > 90) return false;
-        }
-        if (b.lng != null) {
-          b.lng = parseFloat(b.lng);
-          if (isNaN(b.lng) || b.lng < -180 || b.lng > 180) return false;
-        }
-        return true;
-      });
-
-      if (saveBiens([...existing, ...toImport])) {
-        showToast(`✅ ${toImport.length} bien(s) importé(s) sur ${data.biens.length}.`, 'success');
-        if (document.getElementById('view-home').classList.contains('active')) {
-          refreshMapMarkers();
-          renderList();
-        }
-      }
+      data = JSON.parse(e.target.result);
     } catch (err) {
-      showToast('⚠️ Erreur de lecture : ' + err.message, 'error');
+      return showToast('⚠️ Erreur de lecture : ' + err.message, 'error');
     }
+    if (!data.biens || !Array.isArray(data.biens)) {
+      return showToast('⚠️ Fichier invalide.', 'error');
+    }
+
+    showLoader();
+    const n = await importBiensList(data.biens);
+    hideLoader();
+    showToast(`✅ ${n} bien(s) importé(s) sur ${data.biens.length}.`, n ? 'success' : '');
+    showView('home');
   };
   reader.readAsText(file);
   input.value = '';
+}
+
+/** Propose d'envoyer dans l'espace familial les biens de l'ancienne version (localStorage). */
+async function proposeMigration() {
+  let local = [];
+  try {
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    local = raw ? JSON.parse(raw) : [];
+  } catch (e) { return; }
+  if (!Array.isArray(local) || !local.length) return;
+
+  const ok = confirm(
+    `${local.length} bien(s) de l'ancienne version sont enregistrés sur cet appareil.\n\n` +
+    'Les envoyer dans l\'espace familial pour que toute la famille les voie ?'
+  );
+  if (!ok) return;
+
+  showLoader();
+  const n = await importBiensList(local);
+  hideLoader();
+  // On garde les données locales comme sauvegarde, mais on ne repose plus la question
+  try { localStorage.setItem(MIGRATION_KEY, new Date().toISOString()); } catch (e) { /* ignore */ }
+  showToast(`✅ ${n} bien(s) transféré(s) dans l'espace familial.`, 'success');
+  showView('home');
 }
 
 /* ============================================================
@@ -1237,15 +1494,19 @@ async function exportBienPDF(id) {
 
       for (let i = 0; i < b.photos.length; i++) {
         const photo = b.photos[i];
-        const fmt = photo.dataUrl.startsWith('data:image/png') ? 'PNG'
-                  : photo.dataUrl.startsWith('data:image/webp') ? 'WEBP' : 'JPEG';
+        let dataUrl = '';
+        try { dataUrl = photo.path ? await pathToDataUrl(photo.path) : (photo.dataUrl || ''); }
+        catch (e) { console.warn('Photo non chargée pour le PDF :', e); }
+        const fmt = dataUrl.startsWith('data:image/png') ? 'PNG'
+                  : dataUrl.startsWith('data:image/webp') ? 'WEBP' : 'JPEG';
         const x = MARGIN + col * (IMG_W + 8);
 
         checkNewPage(IMG_H + 8);
         if (col === 0) rowY = y;
 
         try {
-          doc.addImage(photo.dataUrl, fmt, x, rowY, IMG_W, IMG_H, '', 'MEDIUM');
+          if (!dataUrl) throw new Error('photo indisponible');
+          doc.addImage(dataUrl, fmt, x, rowY, IMG_W, IMG_H, '', 'MEDIUM');
         } catch(e) {
           doc.setFillColor(240, 238, 233);
           doc.roundedRect(x, rowY, IMG_W, IMG_H, 2, 2, 'F');
@@ -1287,9 +1548,375 @@ async function exportBienPDF(id) {
 }
 
 /* ============================================================
+   🔐 CONNEXION & DEMANDE D'ACCÈS
+   - Un proche envoie nom / prénom / e-mail  → demande "en_attente"
+   - L'admin valide depuis le panneau 👑      → "approuve"
+   - Le membre se connecte avec un lien reçu par e-mail (sans mot de passe)
+============================================================ */
+function configOk() {
+  const c = window.IMMO_CONFIG || {};
+  return typeof c.SUPABASE_URL === 'string' && /^https:\/\//.test(c.SUPABASE_URL) &&
+         !c.SUPABASE_URL.includes('VOTRE-PROJET') &&
+         typeof c.SUPABASE_ANON_KEY === 'string' && c.SUPABASE_ANON_KEY.length > 20;
+}
+
+function appUrl() {
+  return window.location.origin + window.location.pathname;
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function setAuthTab(tab) {
+  ['login', 'demande'].forEach(t => {
+    document.getElementById('tab-'  + t).classList.toggle('active', t === tab);
+    document.getElementById('pane-' + t).classList.toggle('active', t === tab);
+  });
+  setAuthMessage('');
+}
+
+function setAuthMessage(html, type = '') {
+  const el = document.getElementById('auth-message');
+  if (!el) return;
+  el.className = 'auth-message' + (html ? ' visible ' + type : '');
+  el.innerHTML = html;
+}
+
+function setBusy(btnId, busy, label) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  if (busy) { btn.dataset.label = btn.textContent; btn.textContent = label; }
+  else if (btn.dataset.label) btn.textContent = btn.dataset.label;
+  btn.disabled = busy;
+}
+
+function authErrorMessage(error) {
+  if (!error) return '';
+  if (error.status === 429 || /rate limit|security purposes/i.test(error.message || '')) {
+    return 'Trop de tentatives. Patientez quelques minutes avant de réessayer.';
+  }
+  return error.message || 'Erreur inconnue.';
+}
+
+function goToLogin(email) {
+  setAuthTab('login');
+  document.getElementById('login-email').value = email || '';
+}
+
+async function sendLoginLink() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) return setAuthMessage('⚠️ Adresse e-mail invalide.', 'error');
+
+  setBusy('btn-login', true, '⏳ Vérification…');
+  try {
+    const { data: statut, error } = await sb.rpc('statut_email', { p_email: email });
+    if (error) throw error;
+
+    if (statut === 'inconnu') {
+      return setAuthMessage(
+        'Aucune demande pour cette adresse. ' +
+        '<button type="button" class="link-btn" onclick="setAuthTab(\'demande\')">Faire une demande d\'accès</button>', 'error');
+    }
+    if (statut === 'en_attente') {
+      return setAuthMessage('⏳ Votre demande est <strong>en attente</strong> : l\'administrateur doit encore la valider.');
+    }
+    if (statut === 'refuse') {
+      return setAuthMessage('🚫 Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
+    }
+
+    const { error: otpErr } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
+    });
+    if (otpErr) throw otpErr;
+    setAuthMessage(
+      `📬 Lien envoyé à <strong>${esc(email)}</strong>.<br>` +
+      'Ouvrez l\'e-mail <strong>sur cet appareil</strong> et cliquez sur le lien pour vous connecter. ' +
+      'Pensez à regarder dans les spams.', 'success');
+  } catch (e) {
+    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+  } finally {
+    setBusy('btn-login', false);
+  }
+}
+
+async function sendDemande() {
+  const prenom = sanitizeInput(document.getElementById('dem-prenom').value).slice(0, 80);
+  const nom    = sanitizeInput(document.getElementById('dem-nom').value).slice(0, 80);
+  const email  = document.getElementById('dem-email').value.trim().toLowerCase();
+
+  if (!prenom || !nom)       return setAuthMessage('⚠️ Nom et prénom obligatoires.', 'error');
+  if (!EMAIL_RE.test(email)) return setAuthMessage('⚠️ Adresse e-mail invalide.', 'error');
+
+  setBusy('btn-demande', true, '⏳ Envoi…');
+  try {
+    const { data: res, error } = await sb.rpc('demander_acces', { p_nom: nom, p_prenom: prenom, p_email: email });
+    if (error) throw error;
+
+    const loginBtn = `<button type="button" class="link-btn" onclick="goToLogin('${escAttr(email)}')">Se connecter</button>`;
+    const messages = {
+      envoyee:          [`✅ Merci ${esc(prenom)}, votre demande est envoyée !<br>Dès que l'administrateur l'aura acceptée, revenez ici et cliquez sur « Se connecter » avec <strong>${esc(email)}</strong>.`, 'success'],
+      en_attente:       ['⏳ Une demande existe déjà pour cette adresse. Elle attend la validation de l\'administrateur.', ''],
+      approuve:         [`✅ Cette adresse est déjà acceptée. ${loginBtn}`, 'success'],
+      refuse:           ['🚫 Une demande pour cette adresse a été refusée. Contactez l\'administrateur de la famille.', 'error'],
+      complet:          [`👨‍👩‍👧 La famille est complète (${MAX_MEMBRES} membres maximum). Contactez l'administrateur.`, 'error'],
+      trop_de_demandes: ['⚠️ Trop de demandes sont en attente. Réessayez plus tard.', 'error']
+    };
+    const [html, type] = messages[res] || ['⚠️ Réponse inattendue du serveur.', 'error'];
+    setAuthMessage(html, type);
+    if (res === 'envoyee') {
+      ['dem-prenom', 'dem-nom', 'dem-email'].forEach(id => { document.getElementById(id).value = ''; });
+    }
+  } catch (e) {
+    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+  } finally {
+    setBusy('btn-demande', false);
+  }
+}
+
+async function logout() {
+  if (sb) await sb.auth.signOut();
+  resetSessionState();
+  showView('auth');
+}
+
+function resetSessionState() {
+  currentMember = null;
+  biensCache    = [];
+  membresCache  = [];
+  document.body.classList.remove('is-admin');
+}
+
+/* Écran générique (attente de validation, configuration manquante…) */
+function showMessage(icon, title, html, actions) {
+  document.getElementById('message-icon').textContent  = icon;
+  document.getElementById('message-title').textContent = title;
+  document.getElementById('message-text').innerHTML    = html;
+  document.getElementById('message-actions').innerHTML = actions || '';
+  showView('message');
+}
+
+/** Après connexion : vérifie que l'utilisateur est un membre validé. */
+async function checkMembership() {
+  const email = (session && session.user && session.user.email || '').toLowerCase();
+  if (!email) return showView('auth');
+
+  const { data, error } = await sb.from('membres').select('*').eq('email', email).maybeSingle();
+  if (error) {
+    return showMessage('⚠️', 'Connexion impossible', esc(error.message),
+      `<button class="btn btn-primary" onclick="checkMembership()">🔄 Réessayer</button>
+       <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`);
+  }
+  currentMember = data;
+
+  if (isApproved()) return enterApp();
+
+  const actions = `<button class="btn btn-primary" onclick="checkMembership()">🔄 Vérifier à nouveau</button>
+                   <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`;
+  if (!data) {
+    showMessage('🤔', 'Aucune demande trouvée',
+      `Aucune demande d'accès n'existe pour <strong>${esc(email)}</strong>.<br>Déconnectez-vous puis utilisez « Demander l'accès ».`, actions);
+  } else if (data.statut === 'refuse') {
+    showMessage('🚫', 'Demande refusée',
+      'Votre demande d\'accès a été refusée. Contactez l\'administrateur de la famille.', actions);
+  } else {
+    showMessage('⏳', 'Demande en attente',
+      `Bonjour ${esc(data.prenom)} ! Votre demande est bien reçue.<br>L'administrateur doit la valider avant que vous puissiez accéder aux biens.`, actions);
+  }
+}
+
+function enterApp() {
+  document.body.classList.toggle('is-admin', isAdmin());
+  document.getElementById('user-chip').textContent = `👤 ${currentMember.prenom}`;
+  showView('home');
+  if (isAdmin()) setTimeout(proposeMigration, 800);
+}
+
+/* ============================================================
+   👑 ADMINISTRATION DES MEMBRES
+============================================================ */
+async function loadMembres() {
+  if (!isAdmin()) return;
+  const { data, error } = await sb.from('membres').select('*').order('created_at');
+  if (error) return showToast('⚠️ Impossible de charger les membres : ' + error.message, 'error');
+  membresCache = data;
+  updateAdminBadge();
+}
+
+function updateAdminBadge() {
+  const n = membresCache.filter(m => m.statut === 'en_attente').length;
+  const badge = document.getElementById('admin-badge');
+  if (!badge) return;
+  badge.textContent = n;
+  badge.classList.toggle('visible', n > 0);
+}
+
+function membreItem(m, actions) {
+  const initiales = (String(m.prenom || '?').charAt(0) + String(m.nom || '').charAt(0)).toUpperCase();
+  const date = new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  return `<div class="membre-item">
+    <div class="membre-avatar">${esc(initiales)}</div>
+    <div class="membre-info">
+      <div class="membre-nom">${esc(m.prenom)} ${esc(m.nom)}${m.role === 'admin' ? '<span class="role-badge">👑 Admin</span>' : ''}</div>
+      <div class="membre-meta">${esc(m.email)} · demande du ${date}</div>
+    </div>
+    ${actions ? `<div class="membre-actions">${actions}</div>` : ''}
+  </div>`;
+}
+
+function renderAdmin() {
+  const pending  = membresCache.filter(m => m.statut === 'en_attente');
+  const membres  = membresCache.filter(m => m.statut === 'approuve')
+                     .sort((a, b) => (a.role === 'admin' ? -1 : 0) - (b.role === 'admin' ? -1 : 0));
+  const refuses  = membresCache.filter(m => m.statut === 'refuse');
+  const complet  = membres.length >= MAX_MEMBRES;
+
+  const pct = Math.round(membres.length / MAX_MEMBRES * 100);
+  document.getElementById('quota-bar').style.width = pct + '%';
+  document.getElementById('quota-text').textContent =
+    `${membres.length} membre${membres.length > 1 ? 's' : ''} sur ${MAX_MEMBRES}` +
+    (complet ? ' · famille complète' : ` · ${MAX_MEMBRES - membres.length} place(s) libre(s)`);
+  document.getElementById('quota-pct').textContent = pct + '%';
+  document.getElementById('share-link').value = appUrl();
+  document.getElementById('admin-pending-count').textContent = pending.length;
+
+  document.getElementById('admin-pending').innerHTML = pending.length
+    ? pending.map(m => membreItem(m,
+        `<button class="btn btn-success" ${complet ? 'disabled title="Famille complète : retirez d\'abord un membre"' : ''} onclick="decideMembre('${m.id}', 'approuve')">✅ Accepter</button>
+         <button class="btn btn-ghost" onclick="decideMembre('${m.id}', 'refuse')">❌ Refuser</button>`)).join('')
+    : '<p class="membre-empty">Aucune demande en attente.</p>';
+
+  document.getElementById('admin-membres').innerHTML = membres.length
+    ? membres.map(m => membreItem(m, m.role === 'admin' ? '' :
+        `<button class="btn btn-ghost" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">✉️ Prévenir</button>
+         <button class="btn btn-ghost" onclick="removeMembre('${m.id}')">Retirer</button>`)).join('')
+    : '<p class="membre-empty">Aucun membre.</p>';
+
+  document.getElementById('admin-refuses-card').style.display = refuses.length ? '' : 'none';
+  document.getElementById('admin-refuses').innerHTML = refuses.map(m => membreItem(m,
+    `<button class="btn btn-ghost" ${complet ? 'disabled' : ''} onclick="decideMembre('${m.id}', 'approuve')">✅ Accepter</button>
+     <button class="btn btn-ghost" onclick="removeMembre('${m.id}')">🗑️ Effacer</button>`)).join('');
+
+  updateAdminBadge();
+}
+
+async function decideMembre(id, statut) {
+  const m = membresCache.find(x => x.id === id);
+  if (!m) return;
+  if (statut === 'refuse' && !confirm(`Refuser la demande de ${m.prenom} ${m.nom} ?`)) return;
+
+  const { data, error } = await sb.from('membres').update({ statut }).eq('id', id).select();
+  if (error || !data || !data.length) {
+    return showToast('⚠️ ' + (error ? error.message : 'Action refusée.'), 'error');
+  }
+  await loadMembres();
+  renderAdmin();
+
+  if (statut === 'approuve') {
+    showToast(`✅ ${m.prenom} fait maintenant partie de la famille !`, 'success');
+    if (confirm(`Envoyer un e-mail à ${m.prenom} pour le/la prévenir ?`)) notifyMembre(id);
+  } else {
+    showToast(`Demande de ${m.prenom} refusée.`, 'success');
+  }
+}
+
+async function removeMembre(id) {
+  const m = membresCache.find(x => x.id === id);
+  if (!m || m.role === 'admin') return;
+  const msg = m.statut === 'approuve'
+    ? `Retirer ${m.prenom} ${m.nom} de la famille ? Il/elle n'aura plus accès aux biens.`
+    : `Effacer la demande de ${m.prenom} ${m.nom} ? La personne pourra refaire une demande.`;
+  if (!confirm(msg)) return;
+
+  const { data, error } = await sb.from('membres').delete().eq('id', id).select('id');
+  if (error || !data || !data.length) {
+    return showToast('⚠️ ' + (error ? error.message : 'Action refusée.'), 'error');
+  }
+  showToast(`${m.prenom} a été retiré(e).`, 'success');
+  await loadMembres();
+  renderAdmin();
+}
+
+function notifyMembre(id) {
+  const m = membresCache.find(x => x.id === id);
+  if (!m) return;
+  const subject = 'Ton accès à ImmoFamille est validé';
+  const body =
+    `Bonjour ${m.prenom},\n\n` +
+    `Ta demande d'accès à ImmoFamille est acceptée !\n\n` +
+    `Pour te connecter, ouvre ce lien, clique sur « Se connecter » et saisis ton adresse (${m.email}) :\n` +
+    `${appUrl()}\n\n` +
+    `Tu recevras un lien de connexion par e-mail, pas besoin de mot de passe.\n\n` +
+    `À bientôt,\n${currentMember.prenom}`;
+  window.location.href = `mailto:${encodeURIComponent(m.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function copyShareLink() {
+  const url = appUrl();
+  const done = () => showToast('📋 Lien copié !', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done, () => {
+      document.getElementById('share-link').select();
+      showToast('Sélectionnez le lien et copiez-le manuellement.', '');
+    });
+  } else {
+    document.getElementById('share-link').select();
+    document.execCommand('copy');
+    done();
+  }
+}
+
+/* ============================================================
    🚀 INITIALISATION
 ============================================================ */
+async function initApp() {
+  if (!window.supabase || !window.supabase.createClient) {
+    return showMessage('📡', 'Connexion impossible',
+      'La bibliothèque Supabase n\'a pas pu être chargée. Vérifiez votre connexion internet puis rechargez la page.',
+      '<button class="btn btn-primary" onclick="location.reload()">🔄 Recharger</button>');
+  }
+  if (!configOk()) {
+    return showMessage('⚙️', 'Configuration requise',
+      'Renseignez l\'adresse et la clé de votre projet Supabase dans le fichier <code>config.js</code>, ' +
+      'puis exécutez <code>supabase/schema.sql</code>. Tout est expliqué dans le <code>README.md</code>.');
+  }
+
+  sb = window.supabase.createClient(window.IMMO_CONFIG.SUPABASE_URL, window.IMMO_CONFIG.SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit' }
+  });
+
+  // Lien de connexion expiré ou déjà utilisé
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const linkError = hash.get('error_description');
+
+  const { data } = await sb.auth.getSession();
+  session = data.session;
+
+  // Changement de session (déconnexion dans un autre onglet, nouvel utilisateur…)
+  sb.auth.onAuthStateChange((event, newSession) => {
+    const prevEmail = session && session.user ? session.user.email : null;
+    session = newSession;
+    if (event === 'SIGNED_OUT') {
+      resetSessionState();
+      showView('auth');
+    } else if (event === 'SIGNED_IN' && newSession && newSession.user.email !== prevEmail) {
+      // Ne pas appeler Supabase directement dans ce callback
+      setTimeout(checkMembership, 0);
+    }
+  });
+
+  if (window.location.hash) history.replaceState(null, '', appUrl() + window.location.search);
+
+  if (session) {
+    await checkMembership();
+  } else {
+    showView('auth');
+    if (linkError) {
+      setAuthMessage('⚠️ Ce lien de connexion n\'est plus valide (expiré ou déjà utilisé). Demandez-en un nouveau.', 'error');
+    }
+  }
+}
+
 window.addEventListener('load', () => {
   initTheme();
-  showView('home');
+  initApp();
 });

@@ -111,6 +111,7 @@ input, textarea, select {
 .btn-ghost:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-danger:hover { opacity: .85; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
 
 .btn-icon {
   padding: 8px 10px; font-size: 16px;
@@ -586,6 +587,111 @@ textarea.form-control { min-height: 90px; resize: vertical; }
 .lightbox-close:hover { background: rgba(255,255,255,.25); }
 
 /* ============================================================
+   🔐 CONNEXION / DEMANDE D'ACCÈS / ATTENTE
+============================================================ */
+.auth-mode .app-only { display: none !important; }
+body:not(.is-admin) .admin-only { display: none !important; }
+
+.auth-page {
+  min-height: calc(100vh - 62px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px 16px;
+}
+.auth-card {
+  width: 100%; max-width: 460px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 30px 28px;
+}
+.auth-card-center { text-align: center; }
+.auth-logo {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700;
+}
+.auth-sub { text-align: center; color: var(--muted); font-size: 13px; margin: 6px 0 22px; }
+
+.auth-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  background: var(--surface2); border-radius: 10px; padding: 4px; margin-bottom: 20px;
+}
+.auth-tab {
+  border: none; background: transparent; color: var(--muted);
+  padding: 9px 8px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  transition: all var(--transition);
+}
+.auth-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+
+.auth-pane { display: none; }
+.auth-pane.active { display: block; animation: fadeIn .25s ease both; }
+.auth-submit { width: 100%; justify-content: center; padding: 12px; font-size: 15px; }
+.auth-submit:disabled { opacity: .6; cursor: wait; transform: none; box-shadow: none; }
+.auth-hint { font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center; }
+
+.auth-message {
+  display: none; margin-top: 18px; padding: 12px 14px;
+  border-radius: 9px; font-size: 14px; line-height: 1.5;
+  background: var(--surface2); border-left: 4px solid var(--accent);
+}
+.auth-message.visible { display: block; }
+.auth-message.success { border-left-color: var(--success); }
+.auth-message.error   { border-left-color: var(--danger); }
+.auth-message .link-btn {
+  background: none; border: none; padding: 0; color: var(--accent-dk);
+  font-weight: 600; text-decoration: underline; font-size: inherit;
+}
+
+.auth-big-icon { font-size: 52px; margin-bottom: 8px; }
+.auth-title { font-family: 'Playfair Display', serif; font-size: 24px; margin-bottom: 10px; }
+.auth-text { color: var(--text2); font-size: 14px; margin-bottom: 20px; }
+.auth-text code {
+  background: var(--surface2); padding: 1px 6px; border-radius: 5px; font-size: 13px;
+}
+.auth-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+/* Topbar : utilisateur connecté */
+.user-chip {
+  font-size: 13px; color: var(--text2); font-weight: 500;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.btn-admin { position: relative; }
+.notif-badge {
+  display: none; position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--danger); color: white; font-size: 11px; font-weight: 600;
+  line-height: 18px; text-align: center;
+}
+.notif-badge.visible { display: block; }
+
+/* ============================================================
+   👑 ADMINISTRATION
+============================================================ */
+.membre-list { display: flex; flex-direction: column; gap: 8px; }
+.membre-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.membre-avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent); color: white; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.membre-info { flex: 1; min-width: 0; }
+.membre-nom { font-weight: 600; color: var(--text); }
+.membre-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.membre-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.membre-actions .btn { padding: 7px 12px; font-size: 13px; }
+.btn-success { background: var(--success); color: white; }
+.btn-success:hover { opacity: .88; }
+.btn-success:disabled { opacity: .45; cursor: not-allowed; }
+.role-badge {
+  display: inline-block; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 20px; margin-left: 6px;
+  background: rgba(201,169,110,.18); color: var(--accent-dk);
+}
+.membre-empty { font-size: 14px; color: var(--muted); }
+
+/* ============================================================
    TOASTS
 ============================================================ */
 .toast-container {
@@ -774,6 +880,14 @@ textarea.form-control { min-height: 90px; resize: vertical; }
     top: 70px; left: 12px; right: 12px;
   }
   .toast { min-width: 0; max-width: none; font-size: 13px; }
+
+  /* CONNEXION & ADMIN */
+  .user-chip { display: none; }
+  .auth-card { padding: 22px 18px; }
+  .auth-page { min-height: calc(100vh - 56px); padding: 20px 12px; }
+  .membre-item { flex-wrap: wrap; }
+  .membre-actions { width: 100%; }
+  .membre-actions .btn { flex: 1; justify-content: center; }
 
   /* LIGHTBOX */
   .lightbox { padding: 12px; }

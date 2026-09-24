@@ -15,7 +15,7 @@
   <!-- Notre CSS -->
   <link rel="stylesheet" href="style.css"/>
 </head>
-<body>
+<body class="auth-mode">
 
 <!-- LOADER -->
 <div class="loader-overlay" id="loader">
@@ -26,25 +26,28 @@
      TOPBAR
 ============================================================ -->
 <nav class="topbar">
-  <a class="topbar-logo" onclick="showView('home')">
+  <a class="topbar-logo" onclick="goHome()">
     <div class="logo-icon">🏡</div>
     <span class="logo-text-main">Immo<span class="logo-accent">Famille</span></span>
   </a>
   <div class="topbar-actions">
-    <button class="btn btn-ghost" onclick="showView('home')">🗺️ Carte</button>
-    <div class="topbar-sep"></div>
-    <button class="btn-icon" title="Exporter en JSON" onclick="exportJSON()">⬇️</button>
-    <button class="btn-icon" title="Importer JSON" onclick="document.getElementById('import-file').click()">⬆️</button>
+    <button class="btn btn-ghost app-only" onclick="showView('home')">🗺️ Carte</button>
+    <div class="topbar-sep app-only"></div>
+    <button class="btn-icon app-only" title="Exporter en JSON (sauvegarde)" onclick="exportJSON()">⬇️</button>
+    <button class="btn-icon app-only" title="Importer JSON" onclick="document.getElementById('import-file').click()">⬆️</button>
     <input type="file" id="import-file" accept=".json" hidden onchange="importJSON(this)"/>
-    <div class="topbar-sep"></div>
+    <div class="topbar-sep app-only"></div>
+    <span class="user-chip app-only" id="user-chip"></span>
+    <button class="btn-icon app-only admin-only btn-admin" id="btn-admin" title="Gérer la famille" onclick="showView('admin')">👑<span class="notif-badge" id="admin-badge"></span></button>
+    <button class="btn-icon app-only" title="Se déconnecter" onclick="logout()">🚪</button>
     <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Changer le thème">🌙</button>
-    <div class="topbar-sep"></div>
-    <button class="btn btn-primary" onclick="showView('form', null)">＋ Ajouter</button>
+    <div class="topbar-sep app-only"></div>
+    <button class="btn btn-primary app-only" onclick="showView('form', null)">＋ Ajouter</button>
   </div>
 </nav>
 
 <!-- Bouton flottant pour ajouter (visible sur mobile) -->
-<button class="fab" id="fab-add" onclick="showView('form', null)" title="Ajouter un bien" aria-label="Ajouter un bien">＋</button>
+<button class="fab app-only" id="fab-add" onclick="showView('form', null)" title="Ajouter un bien" aria-label="Ajouter un bien">＋</button>
 
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
@@ -56,9 +59,75 @@
 <div class="toast-container" id="toast-container"></div>
 
 <!-- ============================================================
+     VUE 0 : CONNEXION / DEMANDE D'ACCÈS
+============================================================ -->
+<div class="view" id="view-auth">
+  <div class="auth-page fade-in">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="logo-icon">🏡</div>
+        <span>Immo<span class="logo-accent">Famille</span></span>
+      </div>
+      <p class="auth-sub">Espace privé de la famille · 5 membres maximum</p>
+
+      <div class="auth-tabs" role="tablist">
+        <button type="button" class="auth-tab active" id="tab-login" onclick="setAuthTab('login')">Se connecter</button>
+        <button type="button" class="auth-tab" id="tab-demande" onclick="setAuthTab('demande')">Demander l'accès</button>
+      </div>
+
+      <!-- Connexion par lien magique -->
+      <form class="auth-pane active" id="pane-login" onsubmit="event.preventDefault(); sendLoginLink();">
+        <div class="form-group">
+          <label class="form-label" for="login-email">Adresse e-mail</label>
+          <input type="email" id="login-email" class="form-control" placeholder="vous@exemple.com" autocomplete="email" required/>
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit" id="btn-login">✉️ Recevoir mon lien de connexion</button>
+        <p class="auth-hint">Pas de mot de passe : vous recevez un lien de connexion par e-mail.</p>
+      </form>
+
+      <!-- Demande d'adhésion -->
+      <form class="auth-pane" id="pane-demande" onsubmit="event.preventDefault(); sendDemande();">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="dem-prenom">Prénom <span class="required">*</span></label>
+            <input type="text" id="dem-prenom" class="form-control" maxlength="80" autocomplete="given-name" required/>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="dem-nom">Nom <span class="required">*</span></label>
+            <input type="text" id="dem-nom" class="form-control" maxlength="80" autocomplete="family-name" required/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="dem-email">Adresse e-mail <span class="required">*</span></label>
+          <input type="email" id="dem-email" class="form-control" placeholder="vous@exemple.com" autocomplete="email" required/>
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit" id="btn-demande">📨 Envoyer ma demande</button>
+        <p class="auth-hint">L'administrateur de la famille doit valider votre demande avant que vous puissiez vous connecter.</p>
+      </form>
+
+      <div class="auth-message" id="auth-message"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VUE MESSAGE : attente de validation / configuration
+============================================================ -->
+<div class="view" id="view-message">
+  <div class="auth-page fade-in">
+    <div class="auth-card auth-card-center">
+      <div class="auth-big-icon" id="message-icon">⏳</div>
+      <h2 class="auth-title" id="message-title"></h2>
+      <div class="auth-text" id="message-text"></div>
+      <div class="auth-actions" id="message-actions"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
      VUE 1 : ACCUEIL
 ============================================================ -->
-<div class="view active" id="view-home">
+<div class="view" id="view-home">
   <div class="home-layout">
     <aside class="panel">
       <div class="panel-header">
@@ -210,7 +279,7 @@
 
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" onclick="showView('home')">Annuler</button>
-      <button type="button" class="btn btn-primary" onclick="saveBien()">💾 Enregistrer</button>
+      <button type="button" class="btn btn-primary" id="btn-save" onclick="saveBien()">💾 Enregistrer</button>
     </div>
   </div>
 </div>
@@ -222,9 +291,57 @@
   <div class="detail-page fade-in" id="detail-content"></div>
 </div>
 
+<!-- ============================================================
+     VUE 4 : ADMINISTRATION DE LA FAMILLE
+============================================================ -->
+<div class="view" id="view-admin">
+  <div class="form-page fade-in">
+    <div class="form-page-header">
+      <h1>👑 Gestion de la famille</h1>
+      <p>Validez les demandes d'accès. 5 membres maximum, vous compris.</p>
+    </div>
+
+    <div class="form-card">
+      <div class="form-section-title">👨‍👩‍👧 Places occupées</div>
+      <div class="docs-progress">
+        <div class="docs-progress-bar-wrap"><div class="docs-progress-bar" id="quota-bar"></div></div>
+        <div class="docs-progress-label"><span id="quota-text">—</span><span id="quota-pct"></span></div>
+      </div>
+      <label class="form-label">Lien à envoyer à vos proches pour qu'ils fassent leur demande</label>
+      <div class="dms-row">
+        <input type="text" id="share-link" class="form-control" readonly onclick="this.select()"/>
+        <button type="button" class="btn-geo" onclick="copyShareLink()">📋 Copier</button>
+      </div>
+    </div>
+
+    <div class="form-card">
+      <div class="form-section-title">📨 Demandes en attente <span class="count-badge" id="admin-pending-count">0</span></div>
+      <div class="membre-list" id="admin-pending"></div>
+    </div>
+
+    <div class="form-card">
+      <div class="form-section-title">✅ Membres</div>
+      <div class="membre-list" id="admin-membres"></div>
+    </div>
+
+    <div class="form-card" id="admin-refuses-card">
+      <div class="form-section-title">🚫 Demandes refusées</div>
+      <div class="membre-list" id="admin-refuses"></div>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" onclick="showView('home')">← Retour à la carte</button>
+    </div>
+  </div>
+</div>
+
 <!-- Bibliothèques externes -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<!-- Configuration Supabase (à renseigner) -->
+<script src="config.js"></script>
 
 <!-- Notre JS -->
 <script src="app.js"></script>
