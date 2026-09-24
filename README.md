@@ -59,8 +59,18 @@ Dans Supabase : **Authentication → URL Configuration**
 - **Site URL** : l'adresse de l'app (par ex. `https://agbecidavid.github.io/immo-app-famille/`)
 - **Redirect URLs** : ajoutez la même adresse (et `http://localhost:8000/` si vous testez en local)
 
-### 5 bis. Mettre le code dans l'e-mail de connexion
-Pour que l'e-mail contienne un **code à taper dans l'app** (et pas seulement un lien), allez dans **Authentication → Emails**. Dans **les deux modèles « Magic Link » et « Confirm signup »**, remplacez le contenu par :
+### 5 bis. Brancher un service d'envoi d'e-mails (obligatoire pour la famille)
+Le service d'envoi gratuit de Supabase **n'envoie qu'aux membres de votre équipe Supabase**, et seulement quelques e-mails par heure. Vos proches ne recevraient rien. Branchez votre propre service (SMTP). Avec Gmail, c'est gratuit :
+
+1. Sur votre compte Google, activez la **validation en deux étapes**, puis créez un **mot de passe d'application** : https://myaccount.google.com/apppasswords (nom : « ImmoFamille »). Notez les 16 lettres.
+2. Dans Supabase : **Authentication → Emails → SMTP Settings** (bouton « Set up SMTP »), activez **Enable custom SMTP** :
+   - **Sender email** : votre adresse Gmail · **Sender name** : `ImmoFamille`
+   - **Host** : `smtp.gmail.com` · **Port** : `465`
+   - **Username** : votre adresse Gmail · **Password** : le mot de passe d'application (sans espaces)
+3. Dans **Authentication → Rate Limits**, montez « Emails sent per hour » à `30`.
+
+### 5 ter. Mettre le code dans l'e-mail de connexion
+Une fois le SMTP branché, les modèles deviennent modifiables. Pour que l'e-mail contienne un **code à taper dans l'app** (et pas seulement un lien), allez dans **Authentication → Emails**. Dans **les deux modèles « Magic Link » et « Confirm signup »**, remplacez le contenu par :
 
 **Sujet :** `Votre code de connexion ImmoFamille`
 
