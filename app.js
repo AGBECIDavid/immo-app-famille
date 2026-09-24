@@ -317,26 +317,82 @@ function applyTheme(theme) {
   if (menuLabel) menuLabel.textContent = dark ? 'Thème clair' : 'Thème sombre';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', dark ? '#161412' : '#FAF7F2');
-  baseLayers.forEach(layer => layer.setUrl(tileUrl()));
   try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* ignore */ }
 }
 
-/* Fond de carte sobre (CARTO), clair ou sombre selon le thème */
-const baseLayers = [];
+/* Fonds de carte gratuits, sans clé d'API :
+   - Plan      : OpenStreetMap (teinté en CSS pour suivre le thème clair / sombre)
+   - Satellite : imagerie Esri + noms de lieux, pratique pour voir les parcelles */
+const MAP_STYLE_KEY = 'immofamille_fond_carte';
+const mapsWithBase  = [];   // cartes qui ont un fond (pour basculer toutes ensemble)
 
-function tileUrl() {
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-  return `https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`;
+function currentMapStyle() {
+  try { return localStorage.getItem(MAP_STYLE_KEY) === 'satellite' ? 'satellite' : 'plan'; }
+  catch (e) { return 'plan'; }
+}
+
+function makeBaseLayers() {
+  return {
+    plan: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 19
+    }),
+    satellite: L.layerGroup([
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagerie &copy; Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19, maxNativeZoom: 18
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19, maxNativeZoom: 18
+      })
+    ])
+  };
+}
+
+// Bouton « Plan / Satellite » en bas à gauche de chaque carte
+const MapStyleControl = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd() {
+    const btn = L.DomUtil.create('button', 'map-style-btn');
+    btn.type = 'button';
+    L.DomEvent.disableClickPropagation(btn);
+    L.DomEvent.on(btn, 'click', () => setMapStyle(currentMapStyle() === 'plan' ? 'satellite' : 'plan'));
+    this._btn = btn;
+    this.refresh();
+    return btn;
+  },
+  refresh() {
+    // Le bouton propose l'autre fond
+    const toSat = currentMapStyle() === 'plan';
+    this._btn.innerHTML = icon(toSat ? 'satellite' : 'map') + `<span>${toSat ? 'Satellite' : 'Plan'}</span>`;
+    this._btn.setAttribute('aria-label', toSat ? 'Afficher la vue satellite' : 'Afficher le plan');
+  }
+});
+
+function applyMapStyle(entry) {
+  const style = currentMapStyle();
+  Object.entries(entry.layers).forEach(([name, layer]) => {
+    if (name === style) { if (!entry.map.hasLayer(layer)) layer.addTo(entry.map); }
+    else if (entry.map.hasLayer(layer)) entry.map.removeLayer(layer);
+  });
+  entry.map.getContainer().classList.toggle('map-plan', style === 'plan');
+  entry.control.refresh();
+}
+
+function setMapStyle(style) {
+  try { localStorage.setItem(MAP_STYLE_KEY, style); } catch (e) { /* ignore */ }
+  mapsWithBase.forEach(applyMapStyle);
 }
 
 function addBaseLayer(map) {
-  const layer = L.tileLayer(tileUrl(), {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20
-  }).addTo(map);
-  baseLayers.push(layer);
-  return layer;
+  const entry = { map, layers: makeBaseLayers(), control: new MapStyleControl() };
+  entry.control.addTo(map);
+  mapsWithBase.push(entry);
+  applyMapStyle(entry);
+  map.on('unload', () => {
+    const i = mapsWithBase.indexOf(entry);
+    if (i !== -1) mapsWithBase.splice(i, 1);
+  });
 }
 
 function toggleTheme() {
@@ -1173,12 +1229,7 @@ function renderDetail(id) {
   if (b.lat != null) {
     setTimeout(() => {
       // Important : détruire la carte précédente sinon Leaflet plante
-      if (mapDetail) {
-        const i = baseLayers.findIndex(l => l._map === mapDetail);
-        if (i !== -1) baseLayers.splice(i, 1);
-        mapDetail.remove();
-        mapDetail = null;
-      }
+      if (mapDetail) { mapDetail.remove(); mapDetail = null; }
       mapDetail = L.map('map-detail', { scrollWheelZoom: false }).setView([b.lat, b.lng], 15);
       addBaseLayer(mapDetail);
       L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b) }).addTo(mapDetail);

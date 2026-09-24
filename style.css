@@ -559,8 +559,24 @@ body:not(.is-admin) .admin-only { display: none !important; }
 .popup-body small { color: var(--muted); display: block; margin-bottom: 10px; }
 .popup-body .btn { width: 100%; height: 36px; font-size: 13.5px; }
 .leaflet-container { font-family: var(--font); background: var(--surface-2); }
+/* Plan OpenStreetMap harmonisé avec l'app (seules les tuiles sont filtrées, pas les pilules) */
+.map-plan .leaflet-tile-pane { filter: saturate(.72) sepia(.12) brightness(1.02); }
+[data-theme="dark"] .map-plan .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.45); }
+.map-style-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 12px; border-radius: 10px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  box-shadow: var(--shadow); cursor: pointer;
+}
+.map-style-btn:hover { background: var(--surface-2); }
+.map-style-btn .icon { width: 16px; height: 16px; }
 .leaflet-control-attribution { font-size: 10px; }
-.leaflet-bar a { color: var(--ink) !important; }
+.leaflet-bar { border: 1px solid var(--line) !important; box-shadow: var(--shadow) !important; border-radius: 10px !important; overflow: hidden; }
+.leaflet-bar a { color: var(--ink) !important; background: var(--surface) !important; border-color: var(--line) !important; }
+.leaflet-bar a:hover { background: var(--surface-2) !important; }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--surface) 85%, transparent) !important; color: var(--muted) !important; }
+.leaflet-control-attribution a { color: var(--ink-2) !important; }
 
 /* ------------------------------------------------------------
    7. PAGES (formulaire, fiche, admin)
