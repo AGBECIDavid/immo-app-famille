@@ -223,5 +223,5 @@ create policy fichiers_suppression on storage.objects
 -- 5. ADMINISTRATEUR  ⚠️ À PERSONNALISER
 -- ------------------------------------------------------------
 insert into public.membres (email, nom, prenom, role, statut)
-values (lower('VOTRE_EMAIL@exemple.com'), 'VOTRE_NOM', 'VOTRE_PRENOM', 'admin', 'approuve')
+values (lower('agbecidavid29@gmail.com'), 'AGBECI', 'Kouassi Prince David', 'admin', 'approuve')
 on conflict (email) do update set role = 'admin', statut = 'approuve';
