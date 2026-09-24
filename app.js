@@ -329,22 +329,27 @@ function hideLoader() { document.getElementById('loader').classList.remove('visi
 ============================================================ */
 const APP_VIEWS = ['home', 'form', 'detail', 'admin'];
 
-function isApproved() { return !!(currentMember && currentMember.statut === 'approuve'); }
-function isAdmin()    { return isApproved() && currentMember.role === 'admin'; }
+let gateView = 'auth';   // dernier écran « hors app » affiché (connexion, code secret, attente…)
 
-// Connecté mais pas (encore) validé → on garde l'écran de statut (attente / refus)
+function isApproved() { return !!(currentMember && currentMember.statut === 'approuve'); }
+// Accès complet = membre accepté ET code secret donné pour cette session
+function hasAccess()  { return isApproved() && currentMember.session_verifiee === true; }
+function isAdmin()    { return hasAccess() && currentMember.role === 'admin'; }
+
+// Connecté mais pas (encore) autorisé → on reste sur l'écran d'étape en cours
 function fallbackView() {
-  return session ? 'message' : 'auth';
+  return session ? gateView : 'auth';
 }
 
 function goHome() {
-  showView(isApproved() ? 'home' : fallbackView());
+  showView(hasAccess() ? 'home' : fallbackView());
 }
 
 function showView(name, bienId) {
-  // Garde-fous : pages réservées aux membres validés / à l'admin
-  if (APP_VIEWS.includes(name) && !isApproved()) name = fallbackView();
+  // Garde-fous : pages réservées aux membres vérifiés / à l'admin
+  if (APP_VIEWS.includes(name) && !hasAccess()) name = fallbackView();
   if (name === 'admin' && !isAdmin()) name = 'home';
+  if (!APP_VIEWS.includes(name)) gateView = name;
 
   document.body.classList.toggle('auth-mode', !APP_VIEWS.includes(name));
 
@@ -1136,7 +1141,7 @@ function closeLightbox() {
   document.getElementById('lightbox').classList.remove('open');
   document.getElementById('lightbox-img').src = '';
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeCodeModal(); } });
 
 /* ============================================================
    🔔 TOASTS
@@ -1551,7 +1556,12 @@ async function exportBienPDF(id) {
    🔐 CONNEXION & DEMANDE D'ACCÈS
    - Un proche envoie nom / prénom / e-mail  → demande "en_attente"
    - L'admin valide depuis le panneau 👑      → "approuve"
-   - Le membre se connecte avec un lien reçu par e-mail (sans mot de passe)
+   - Connexion en 2 étapes :
+       1. code (ou lien) reçu par e-mail  → prouve qu'on possède l'adresse
+       2. code secret personnel           → prouve que c'est bien la personne
+     La 1re fois, le membre saisit le code d'activation donné par l'admin
+     (par téléphone / WhatsApp) puis choisit son code secret.
+     La base refuse tout accès aux biens tant que l'étape 2 n'est pas faite.
 ============================================================ */
 function configOk() {
   const c = window.IMMO_CONFIG || {};
@@ -1567,10 +1577,10 @@ function appUrl() {
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function setAuthTab(tab) {
-  ['login', 'demande'].forEach(t => {
-    document.getElementById('tab-'  + t).classList.toggle('active', t === tab);
-    document.getElementById('pane-' + t).classList.toggle('active', t === tab);
-  });
+  ['login', 'demande'].forEach(t =>
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab || (tab === 'otp' && t === 'login')));
+  ['login', 'demande', 'otp'].forEach(t =>
+    document.getElementById('pane-' + t).classList.toggle('active', t === tab));
   setAuthMessage('');
 }
 
@@ -1623,19 +1633,56 @@ async function sendLoginLink() {
       return setAuthMessage('🚫 Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
     }
 
-    const { error: otpErr } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
-    });
-    if (otpErr) throw otpErr;
-    setAuthMessage(
-      `📬 Lien envoyé à <strong>${esc(email)}</strong>.<br>` +
-      'Ouvrez l\'e-mail <strong>sur cet appareil</strong> et cliquez sur le lien pour vous connecter. ' +
-      'Pensez à regarder dans les spams.', 'success');
+    await requestEmailCode(email);
   } catch (e) {
     setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
   } finally {
     setBusy('btn-login', false);
+  }
+}
+
+let otpEmail = '';
+
+async function requestEmailCode(email) {
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
+  });
+  if (error) throw error;
+  otpEmail = email;
+  document.getElementById('otp-email').textContent = email;
+  document.getElementById('otp-code').value = '';
+  setAuthTab('otp');
+  setAuthMessage('📬 E-mail envoyé. Pensez à regarder dans les spams.', 'success');
+  setTimeout(() => document.getElementById('otp-code').focus(), 50);
+}
+
+async function resendCode() {
+  if (!otpEmail) return setAuthTab('login');
+  try {
+    await requestEmailCode(otpEmail);
+  } catch (e) {
+    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+  }
+}
+
+/** Étape 1 : vérifie le code reçu par e-mail, dans ce même onglet. */
+async function verifyEmailCode() {
+  const token = document.getElementById('otp-code').value.replace(/\s/g, '');
+  if (!/^\d{6,10}$/.test(token)) return setAuthMessage('⚠️ Saisissez le code à chiffres reçu par e-mail.', 'error');
+
+  setBusy('btn-otp', true, '⏳ Vérification…');
+  try {
+    const { data, error } = await sb.auth.verifyOtp({ email: otpEmail, token, type: 'email' });
+    if (error) {
+      const expired = /expired|invalid/i.test(error.message || '');
+      return setAuthMessage('⚠️ ' + (expired ? 'Code incorrect ou expiré. Vérifiez-le ou demandez-en un nouveau.' : esc(authErrorMessage(error))), 'error');
+    }
+    session = data.session;
+    showToast('✅ Adresse e-mail vérifiée', 'success');
+    await checkMembership();
+  } finally {
+    setBusy('btn-otp', false);
   }
 }
 
@@ -1680,6 +1727,7 @@ async function logout() {
 }
 
 function resetSessionState() {
+  otpEmail      = '';
   currentMember = null;
   biensCache    = [];
   membresCache  = [];
@@ -1695,32 +1743,132 @@ function showMessage(icon, title, html, actions) {
   showView('message');
 }
 
-/** Après connexion : vérifie que l'utilisateur est un membre validé. */
-async function checkMembership() {
+/** Après la vérification de l'e-mail : décide de l'étape suivante selon l'état en base. */
+let checking = null;
+function checkMembership() {
+  // Évite deux vérifications simultanées (ex. événement d'un autre onglet + clic)
+  if (!checking) checking = doCheckMembership().finally(() => { checking = null; });
+  return checking;
+}
+
+async function doCheckMembership() {
   const email = (session && session.user && session.user.email || '').toLowerCase();
   if (!email) return showView('auth');
 
-  const { data, error } = await sb.from('membres').select('*').eq('email', email).maybeSingle();
+  const { data: etat, error } = await sb.rpc('mon_etat');
   if (error) {
     return showMessage('⚠️', 'Connexion impossible', esc(error.message),
       `<button class="btn btn-primary" onclick="checkMembership()">🔄 Réessayer</button>
        <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`);
   }
-  currentMember = data;
+  currentMember = etat.statut === 'inconnu' ? null : etat;
 
-  if (isApproved()) return enterApp();
+  if (hasAccess()) return enterApp();
 
   const actions = `<button class="btn btn-primary" onclick="checkMembership()">🔄 Vérifier à nouveau</button>
                    <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`;
-  if (!data) {
-    showMessage('🤔', 'Aucune demande trouvée',
+  if (!currentMember) {
+    return showMessage('🤔', 'Aucune demande trouvée',
       `Aucune demande d'accès n'existe pour <strong>${esc(email)}</strong>.<br>Déconnectez-vous puis utilisez « Demander l'accès ».`, actions);
-  } else if (data.statut === 'refuse') {
-    showMessage('🚫', 'Demande refusée',
+  }
+  if (etat.statut === 'refuse') {
+    return showMessage('🚫', 'Demande refusée',
       'Votre demande d\'accès a été refusée. Contactez l\'administrateur de la famille.', actions);
-  } else {
-    showMessage('⏳', 'Demande en attente',
-      `Bonjour ${esc(data.prenom)} ! Votre demande est bien reçue.<br>L'administrateur doit la valider avant que vous puissiez accéder aux biens.`, actions);
+  }
+  if (etat.statut !== 'approuve') {
+    return showMessage('⏳', 'Demande en attente',
+      `Bonjour ${esc(etat.prenom)} ! Votre demande est bien reçue.<br>L'administrateur doit la valider avant que vous puissiez accéder aux biens.`, actions);
+  }
+
+  // Membre accepté : 2e étape (code secret)
+  if (etat.bloque) {
+    return showMessage('🔒', 'Compte bloqué',
+      'Trop d\'essais avec un mauvais code.<br>Demandez à l\'administrateur de vous donner un <strong>nouveau code d\'activation</strong>.', actions);
+  }
+  if (etat.pin_defini)  return showVerify('pin');
+  if (etat.activation)  return showVerify('activation');
+  if (etat.role === 'admin') return showVerify('creation');
+  if (etat.activation_expiree) {
+    return showMessage('⌛', 'Code d\'activation expiré',
+      'Votre code d\'activation n\'est plus valable (7 jours).<br>Demandez-en un nouveau à l\'administrateur.', actions);
+  }
+  return showMessage('🔑', 'Presque terminé !',
+    `Bonjour ${esc(etat.prenom)}, votre demande est acceptée.<br>` +
+    'Pour finir, il vous faut le <strong>code d\'activation</strong> que l\'administrateur vous donnera par téléphone ou WhatsApp.', actions);
+}
+
+/* ------------------------------------------------------------
+   Étape 2 : code secret
+   mode 'pin'        → saisir son code secret
+   mode 'activation' → code d'activation + choix du code secret (1re connexion)
+   mode 'creation'   → l'admin choisit son code secret (1re connexion)
+------------------------------------------------------------ */
+let verifyMode = 'pin';
+
+function showVerify(mode) {
+  verifyMode = mode;
+  const first = mode !== 'pin';
+  const texts = {
+    pin:        ['🔒 Votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Saisissez votre code secret à 6 chiffres.`],
+    activation: ['🔑 Activez votre compte', `Bienvenue ${esc(currentMember.prenom)} ! Saisissez le code d'activation que l'administrateur vous a donné, puis choisissez votre code secret. Il vous sera demandé à chaque nouvelle connexion.`],
+    creation:   ['🔑 Choisissez votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Choisissez un code secret à 6 chiffres. Il vous sera demandé à chaque nouvelle connexion, en plus de l'e-mail.`]
+  };
+  document.getElementById('verify-title').textContent = texts[mode][0];
+  document.getElementById('verify-text').innerHTML    = texts[mode][1];
+  document.getElementById('grp-activation').style.display = mode === 'activation' ? '' : 'none';
+  document.getElementById('grp-pin2').style.display       = first ? '' : 'none';
+  document.getElementById('lbl-pin').textContent = first ? 'Choisissez votre code secret (6 chiffres)' : 'Code secret';
+  document.getElementById('btn-verify').textContent = first ? '✅ Activer mon compte' : '🔓 Accéder';
+  ['v-activation', 'v-pin', 'v-pin2'].forEach(id => { document.getElementById(id).value = ''; });
+  setVerifyMessage('');
+  showView('verify');
+  setTimeout(() => document.getElementById(mode === 'activation' ? 'v-activation' : 'v-pin').focus(), 200);
+}
+
+function setVerifyMessage(html, type = '') {
+  const el = document.getElementById('verify-message');
+  el.className = 'auth-message' + (html ? ' visible ' + type : '');
+  el.innerHTML = html;
+}
+
+function isWeakPin(pin) {
+  return /^(\d)\1{5}$/.test(pin) || ['123456', '654321', '012345', '123123', '121212'].includes(pin);
+}
+
+async function submitVerify() {
+  const activation = document.getElementById('v-activation').value.trim();
+  const pin        = document.getElementById('v-pin').value.trim();
+  const pin2       = document.getElementById('v-pin2').value.trim();
+
+  if (verifyMode === 'activation' && !/^\d{6}$/.test(activation)) {
+    return setVerifyMessage('⚠️ Le code d\'activation contient 6 chiffres.', 'error');
+  }
+  if (!/^\d{6}$/.test(pin)) return setVerifyMessage('⚠️ Le code secret contient exactement 6 chiffres.', 'error');
+  if (verifyMode !== 'pin') {
+    if (isWeakPin(pin)) return setVerifyMessage('⚠️ Ce code est trop simple, choisissez-en un autre.', 'error');
+    if (pin !== pin2)   return setVerifyMessage('⚠️ Les deux codes secrets ne correspondent pas.', 'error');
+  }
+
+  setBusy('btn-verify', true, '⏳ Vérification…');
+  try {
+    const { data: res, error } = verifyMode === 'pin'
+      ? await sb.rpc('verifier_code_secret', { p_pin: pin })
+      : await sb.rpc('activer_code_secret', { p_activation: verifyMode === 'activation' ? activation : null, p_pin: pin });
+    if (error) return setVerifyMessage('⚠️ ' + esc(error.message), 'error');
+
+    if (res === 'ok') {
+      showToast(verifyMode === 'pin' ? '🔓 Identité vérifiée' : '✅ Compte activé ! Retenez bien votre code secret.', 'success');
+      return checkMembership();
+    }
+    if (res && res.startsWith('incorrect:')) {
+      const left = res.split(':')[1];
+      document.getElementById(verifyMode === 'activation' ? 'v-activation' : 'v-pin').value = '';
+      return setVerifyMessage(`⚠️ Code incorrect. Encore <strong>${esc(left)}</strong> essai(s) avant blocage du compte.`, 'error');
+    }
+    // bloque / expire / pas_de_code / deja_defini → l'état a changé, on relit
+    return checkMembership();
+  } finally {
+    setBusy('btn-verify', false);
   }
 }
 
@@ -1734,12 +1882,28 @@ function enterApp() {
 /* ============================================================
    👑 ADMINISTRATION DES MEMBRES
 ============================================================ */
+let securite = {};   // membre_id → { pin_defini, activation_valide, bloque }
+
 async function loadMembres() {
   if (!isAdmin()) return;
-  const { data, error } = await sb.from('membres').select('*').order('created_at');
-  if (error) return showToast('⚠️ Impossible de charger les membres : ' + error.message, 'error');
-  membresCache = data;
+  const [res, secu] = await Promise.all([
+    sb.from('membres').select('*').order('created_at'),
+    sb.rpc('etat_securite_membres')
+  ]);
+  if (res.error) return showToast('⚠️ Impossible de charger les membres : ' + res.error.message, 'error');
+  membresCache = res.data;
+  securite = {};
+  (secu.data || []).forEach(x => { securite[x.membre_id] = x; });
   updateAdminBadge();
+}
+
+function secuBadge(m) {
+  if (m.statut !== 'approuve') return '';
+  const x = securite[m.id] || {};
+  if (x.bloque)            return '<span class="secu-badge secu-bloque">🚫 Bloqué</span>';
+  if (x.pin_defini)        return '<span class="secu-badge secu-ok">🔒 Code secret actif</span>';
+  if (x.activation_valide) return '<span class="secu-badge secu-attente">🔑 Activation en attente</span>';
+  return '<span class="secu-badge secu-aucun">⚠️ Sans code</span>';
 }
 
 function updateAdminBadge() {
@@ -1756,7 +1920,7 @@ function membreItem(m, actions) {
   return `<div class="membre-item">
     <div class="membre-avatar">${esc(initiales)}</div>
     <div class="membre-info">
-      <div class="membre-nom">${esc(m.prenom)} ${esc(m.nom)}${m.role === 'admin' ? '<span class="role-badge">👑 Admin</span>' : ''}</div>
+      <div class="membre-nom">${esc(m.prenom)} ${esc(m.nom)}${m.role === 'admin' ? '<span class="role-badge">👑 Admin</span>' : ''}${secuBadge(m)}</div>
       <div class="membre-meta">${esc(m.email)} · demande du ${date}</div>
     </div>
     ${actions ? `<div class="membre-actions">${actions}</div>` : ''}
@@ -1787,7 +1951,8 @@ function renderAdmin() {
 
   document.getElementById('admin-membres').innerHTML = membres.length
     ? membres.map(m => membreItem(m, m.role === 'admin' ? '' :
-        `<button class="btn btn-ghost" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">✉️ Prévenir</button>
+        `<button class="btn btn-ghost" title="Nouveau code d'activation (débloque / remplace un code oublié)" onclick="newActivationCode('${m.id}')">🔑 Code</button>
+         <button class="btn btn-ghost" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">✉️ Prévenir</button>
          <button class="btn btn-ghost" onclick="removeMembre('${m.id}')">Retirer</button>`)).join('')
     : '<p class="membre-empty">Aucun membre.</p>';
 
@@ -1813,7 +1978,7 @@ async function decideMembre(id, statut) {
 
   if (statut === 'approuve') {
     showToast(`✅ ${m.prenom} fait maintenant partie de la famille !`, 'success');
-    if (confirm(`Envoyer un e-mail à ${m.prenom} pour le/la prévenir ?`)) notifyMembre(id);
+    await newActivationCode(id, true);
   } else {
     showToast(`Demande de ${m.prenom} refusée.`, 'success');
   }
@@ -1845,9 +2010,55 @@ function notifyMembre(id) {
     `Ta demande d'accès à ImmoFamille est acceptée !\n\n` +
     `Pour te connecter, ouvre ce lien, clique sur « Se connecter » et saisis ton adresse (${m.email}) :\n` +
     `${appUrl()}\n\n` +
-    `Tu recevras un lien de connexion par e-mail, pas besoin de mot de passe.\n\n` +
+    `Tu recevras un code par e-mail. La première fois, on te demandera aussi le code d'activation ` +
+    `que je te donne par téléphone / WhatsApp (jamais par e-mail), puis tu choisiras ton code secret.\n\n` +
     `À bientôt,\n${currentMember.prenom}`;
   window.location.href = `mailto:${encodeURIComponent(m.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+/* ------------------------------------------------------------
+   Codes d'activation
+------------------------------------------------------------ */
+let modalCode = '';
+
+async function newActivationCode(id, afterApproval = false) {
+  const m = membresCache.find(x => x.id === id);
+  if (!m) return;
+  const x = securite[id] || {};
+  if (!afterApproval && (x.pin_defini || x.activation_valide) &&
+      !confirm(`Générer un nouveau code pour ${m.prenom} ?\n\nSon code actuel ne marchera plus et il/elle devra se réactiver.`)) return;
+
+  const { data: code, error } = await sb.rpc('generer_code_activation', { p_membre: id });
+  if (error) return showToast('⚠️ ' + error.message, 'error');
+  await loadMembres();
+  renderAdmin();
+  showCodeModal(m, code, afterApproval);
+}
+
+function showCodeModal(m, code, afterApproval) {
+  modalCode = code;
+  const msg =
+    `Bonjour ${m.prenom}, voici ton code d'activation ImmoFamille : ${code}\n` +
+    `Il est valable 7 jours. Connecte-toi ici avec ton e-mail (${m.email}) : ${appUrl()}`;
+  document.getElementById('code-modal-text').innerHTML = (afterApproval
+    ? `${esc(m.prenom)} est accepté(e) ! Pour sa première connexion, il/elle aura besoin de ce code :`
+    : `Nouveau code pour <strong>${esc(m.prenom)} ${esc(m.nom)}</strong> :`);
+  document.getElementById('code-modal-code').textContent = code;
+  document.getElementById('code-modal-whatsapp').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+  document.getElementById('code-modal-sms').href = 'sms:?&body=' + encodeURIComponent(msg);
+  document.getElementById('code-modal').classList.add('open');
+}
+
+function closeCodeModal() {
+  document.getElementById('code-modal').classList.remove('open');
+  document.getElementById('code-modal-code').textContent = '';
+  modalCode = '';
+}
+
+function copyActivationCode() {
+  if (!modalCode) return;
+  const done = () => showToast('📋 Code copié !', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(modalCode).then(done, () => {});
 }
 
 function copyShareLink() {
@@ -1891,7 +2102,7 @@ async function initApp() {
   const { data } = await sb.auth.getSession();
   session = data.session;
 
-  // Changement de session (déconnexion dans un autre onglet, nouvel utilisateur…)
+  // Changement de session : lien cliqué dans un autre onglet, déconnexion ailleurs…
   sb.auth.onAuthStateChange((event, newSession) => {
     const prevEmail = session && session.user ? session.user.email : null;
     session = newSession;
@@ -1900,9 +2111,32 @@ async function initApp() {
       showView('auth');
     } else if (event === 'SIGNED_IN' && newSession && newSession.user.email !== prevEmail) {
       // Ne pas appeler Supabase directement dans ce callback
-      setTimeout(checkMembership, 0);
+      setTimeout(() => {
+        showToast('✅ Adresse e-mail vérifiée', 'success');
+        checkMembership();
+      }, 0);
     }
   });
+
+  // Filet de sécurité : en revenant sur cet onglet, on regarde si la connexion
+  // a été faite ailleurs (lien de l'e-mail ouvert dans un nouvel onglet)
+  const recheck = async () => {
+    if (document.visibilityState !== 'visible') return;
+    const { data: d } = await sb.auth.getSession();
+    const email = d.session && d.session.user ? d.session.user.email : null;
+    const known = session && session.user ? session.user.email : null;
+    if (email && email !== known) {
+      session = d.session;
+      showToast('✅ Adresse e-mail vérifiée', 'success');
+      checkMembership();
+    } else if (!email && known) {
+      session = null;
+      resetSessionState();
+      showView('auth');
+    }
+  };
+  document.addEventListener('visibilitychange', recheck);
+  window.addEventListener('focus', recheck);
 
   if (window.location.hash) history.replaceState(null, '', appUrl() + window.location.search);
 

@@ -55,6 +55,27 @@
   <img id="lightbox-img" src="" alt="Photo agrandie"/>
 </div>
 
+<!-- Code d'activation (admin) -->
+<div class="modal" id="code-modal" onclick="if (event.target === this) closeCodeModal()">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="code-modal-title">
+    <div class="auth-big-icon">🔑</div>
+    <h2 class="auth-title" id="code-modal-title">Code d'activation</h2>
+    <p class="auth-text" id="code-modal-text"></p>
+    <div class="code-display" id="code-modal-code"></div>
+    <p class="auth-hint" id="code-modal-expire">Valable 7 jours · utilisable une seule fois</p>
+    <div class="modal-warning">
+      📞 Donnez ce code <strong>par téléphone, SMS ou WhatsApp</strong>, pas par e-mail.
+      C'est ce qui garantit que c'est bien la bonne personne qui se connecte.
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="copyActivationCode()">📋 Copier</button>
+      <a class="btn btn-ghost" id="code-modal-whatsapp" target="_blank" rel="noopener">💬 WhatsApp</a>
+      <a class="btn btn-ghost" id="code-modal-sms">✉️ SMS</a>
+    </div>
+    <button type="button" class="btn btn-primary auth-submit" onclick="closeCodeModal()">C'est noté</button>
+  </div>
+</div>
+
 <!-- Toasts -->
 <div class="toast-container" id="toast-container"></div>
 
@@ -81,8 +102,28 @@
           <label class="form-label" for="login-email">Adresse e-mail</label>
           <input type="email" id="login-email" class="form-control" placeholder="vous@exemple.com" autocomplete="email" required/>
         </div>
-        <button type="submit" class="btn btn-primary auth-submit" id="btn-login">✉️ Recevoir mon lien de connexion</button>
-        <p class="auth-hint">Pas de mot de passe : vous recevez un lien de connexion par e-mail.</p>
+        <button type="submit" class="btn btn-primary auth-submit" id="btn-login">✉️ Recevoir mon code de connexion</button>
+        <p class="auth-hint">Pas de mot de passe : vous recevez un code par e-mail, puis on vous demande votre code secret.</p>
+      </form>
+
+      <!-- Étape 2 de la connexion : code reçu par e-mail -->
+      <form class="auth-pane" id="pane-otp" onsubmit="event.preventDefault(); verifyEmailCode();">
+        <div class="stepper">
+          <div class="step active"><span class="step-dot">1</span>E-mail</div>
+          <div class="step-line"></div>
+          <div class="step"><span class="step-dot">2</span>Code secret</div>
+        </div>
+        <p class="auth-text">Un e-mail a été envoyé à <strong id="otp-email"></strong>.<br>Saisissez le code qu'il contient :</p>
+        <div class="form-group">
+          <input type="text" id="otp-code" class="form-control code-input" inputmode="numeric"
+                 autocomplete="one-time-code" maxlength="10" placeholder="••••••" aria-label="Code reçu par e-mail"/>
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit" id="btn-otp">✅ Vérifier mon e-mail</button>
+        <p class="auth-hint">
+          Vous avez plutôt cliqué sur le lien de l'e-mail ? Cette page se met à jour toute seule.<br>
+          <button type="button" class="link-btn" onclick="resendCode()">Renvoyer un code</button> ·
+          <button type="button" class="link-btn" onclick="setAuthTab('login')">Changer d'adresse</button>
+        </p>
       </form>
 
       <!-- Demande d'adhésion -->
@@ -106,6 +147,42 @@
       </form>
 
       <div class="auth-message" id="auth-message"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VUE VÉRIFICATION : code secret (2e étape de connexion)
+============================================================ -->
+<div class="view" id="view-verify">
+  <div class="auth-page fade-in">
+    <div class="auth-card">
+      <div class="stepper">
+        <div class="step done"><span class="step-dot">✓</span>E-mail vérifié</div>
+        <div class="step-line done"></div>
+        <div class="step active"><span class="step-dot">2</span>Code secret</div>
+      </div>
+      <h2 class="auth-title" id="verify-title"></h2>
+      <p class="auth-text" id="verify-text"></p>
+
+      <form id="verify-form" onsubmit="event.preventDefault(); submitVerify();">
+        <div class="form-group" id="grp-activation">
+          <label class="form-label" for="v-activation">Code d'activation <span class="form-label-hint">— donné par l'administrateur</span></label>
+          <input type="text" id="v-activation" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        </div>
+        <div class="form-group" id="grp-pin">
+          <label class="form-label" for="v-pin" id="lbl-pin">Code secret</label>
+          <input type="password" id="v-pin" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        </div>
+        <div class="form-group" id="grp-pin2">
+          <label class="form-label" for="v-pin2">Confirmez votre code secret</label>
+          <input type="password" id="v-pin2" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit" id="btn-verify">🔓 Accéder</button>
+      </form>
+
+      <div class="auth-message" id="verify-message"></div>
+      <p class="auth-hint"><button type="button" class="link-btn" onclick="logout()">Se déconnecter</button></p>
     </div>
   </div>
 </div>
