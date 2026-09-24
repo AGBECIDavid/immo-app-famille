@@ -6,6 +6,6 @@
     la sécurité est assurée par les règles de supabase/schema.sql)
 ============================================================ */
 window.IMMO_CONFIG = {
-  SUPABASE_URL:      'https://VOTRE-PROJET.supabase.co',
-  SUPABASE_ANON_KEY: 'VOTRE_CLE_ANON_PUBLIQUE'
+  SUPABASE_URL:      'https://jspdkdbyubxohfzdybgv.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_78DKOj7FwxmdoNq8vIFptg_hqHIlvQ1'
 };
