@@ -3,14 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
-  <meta name="theme-color" content="#C9A96E"/>
-  <title>ImmoFamille — Gestion de Biens</title>
+  <meta name="theme-color" content="#FAF7F2"/>
+  <title>ImmoFamille · Le patrimoine de la famille</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23B4532F'/%3E%3Cpath d='M8 15.5 16 9l8 6.5V23a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z' fill='%23fff'/%3E%3C/svg%3E"/>
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
   <!-- Polices -->
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet"/>
 
   <!-- Notre CSS -->
   <link rel="stylesheet" href="style.css"/>
@@ -23,392 +26,466 @@
 </div>
 
 <!-- ============================================================
-     TOPBAR
+     BARRE DU HAUT
 ============================================================ -->
-<nav class="topbar">
-  <a class="topbar-logo" onclick="goHome()">
-    <div class="logo-icon">🏡</div>
-    <span class="logo-text-main">Immo<span class="logo-accent">Famille</span></span>
+<header class="topbar">
+  <a class="brand" href="#" onclick="goHome(); return false;" aria-label="ImmoFamille, accueil">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="9" fill="currentColor"/>
+      <path d="M8 15.5 16 9l8 6.5V23a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#fff"/>
+    </svg>
+    <span class="brand-name">Immo<span>Famille</span></span>
   </a>
-  <div class="topbar-actions">
-    <button class="btn btn-ghost app-only" onclick="showView('home')">🗺️ Carte</button>
-    <div class="topbar-sep app-only"></div>
-    <button class="btn-icon app-only" title="Exporter en JSON (sauvegarde)" onclick="exportJSON()">⬇️</button>
-    <button class="btn-icon app-only" title="Importer JSON" onclick="document.getElementById('import-file').click()">⬆️</button>
-    <input type="file" id="import-file" accept=".json" hidden onchange="importJSON(this)"/>
-    <div class="topbar-sep app-only"></div>
-    <span class="user-chip app-only" id="user-chip"></span>
-    <button class="btn-icon app-only admin-only btn-admin" id="btn-admin" title="Gérer la famille" onclick="showView('admin')">👑<span class="notif-badge" id="admin-badge"></span></button>
-    <button class="btn-icon app-only" title="Se déconnecter" onclick="logout()">🚪</button>
-    <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Changer le thème">🌙</button>
-    <div class="topbar-sep app-only"></div>
-    <button class="btn btn-primary app-only" onclick="showView('form', null)">＋ Ajouter</button>
-  </div>
-</nav>
 
-<!-- Bouton flottant pour ajouter (visible sur mobile) -->
-<button class="fab app-only" id="fab-add" onclick="showView('form', null)" title="Ajouter un bien" aria-label="Ajouter un bien">＋</button>
+  <nav class="topnav app-only" aria-label="Navigation principale">
+    <button class="topnav-link" data-nav="home" onclick="showView('home')">Biens</button>
+    <button class="topnav-link admin-only" data-nav="admin" id="btn-admin" onclick="showView('admin')">
+      Famille <span class="notif-badge" id="admin-badge"></span>
+    </button>
+  </nav>
+
+  <div class="topbar-actions">
+    <button class="btn btn-primary app-only topbar-add" onclick="showView('form', null)" aria-label="Ajouter un bien">
+      <i data-icon="plus"></i><span>Ajouter un bien</span>
+    </button>
+
+    <button class="icon-btn gate-only" id="theme-btn" onclick="toggleTheme()" title="Changer le thème" aria-label="Changer le thème"></button>
+
+    <div class="user-menu app-only">
+      <button class="avatar-btn" id="user-btn" onclick="toggleUserMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-label="Mon compte">
+        <span class="avatar" id="user-avatar"></span>
+        <span class="avatar-dot" id="avatar-dot" title="Demandes en attente"></span>
+        <i data-icon="chevron-down"></i>
+      </button>
+      <div class="menu" id="user-menu" role="menu">
+        <div class="menu-head">
+          <div class="menu-name" id="user-chip"></div>
+          <div class="menu-email" id="user-email"></div>
+        </div>
+        <button class="menu-item admin-only" role="menuitem" onclick="closeUserMenu(); showView('admin')">
+          <i data-icon="users"></i><span>Gérer la famille</span><span class="menu-count" id="menu-admin-count"></span>
+        </button>
+        <button class="menu-item" role="menuitem" onclick="closeUserMenu(); exportJSON()">
+          <i data-icon="download"></i><span>Sauvegarder les biens</span>
+        </button>
+        <button class="menu-item" role="menuitem" onclick="closeUserMenu(); document.getElementById('import-file').click()">
+          <i data-icon="upload"></i><span>Importer une sauvegarde</span>
+        </button>
+        <button class="menu-item" role="menuitem" onclick="toggleTheme()">
+          <span id="theme-menu-icon"></span><span id="theme-menu-label">Thème sombre</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item menu-danger" role="menuitem" onclick="closeUserMenu(); logout()">
+          <i data-icon="log-out"></i><span>Se déconnecter</span>
+        </button>
+      </div>
+      <input type="file" id="import-file" accept=".json" hidden onchange="importJSON(this)"/>
+    </div>
+  </div>
+</header>
 
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <button class="lightbox-close" onclick="closeLightbox(); event.stopPropagation();">✕</button>
+  <button class="lightbox-close" onclick="closeLightbox(); event.stopPropagation();" aria-label="Fermer"><i data-icon="x"></i></button>
   <img id="lightbox-img" src="" alt="Photo agrandie"/>
 </div>
 
 <!-- Code d'activation (admin) -->
 <div class="modal" id="code-modal" onclick="if (event.target === this) closeCodeModal()">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="code-modal-title">
-    <div class="auth-big-icon">🔑</div>
-    <h2 class="auth-title" id="code-modal-title">Code d'activation</h2>
-    <p class="auth-text" id="code-modal-text"></p>
+    <div class="state-icon"><i data-icon="key-round"></i></div>
+    <h2 class="gate-title" id="code-modal-title">Code d'activation</h2>
+    <p class="gate-text" id="code-modal-text"></p>
     <div class="code-display" id="code-modal-code"></div>
-    <p class="auth-hint" id="code-modal-expire">Valable 7 jours · utilisable une seule fois</p>
-    <div class="modal-warning">
-      📞 Donnez ce code <strong>par téléphone, SMS ou WhatsApp</strong>, pas par e-mail.
-      C'est ce qui garantit que c'est bien la bonne personne qui se connecte.
+    <p class="hint">Valable 7 jours · utilisable une seule fois</p>
+    <div class="callout">
+      <i data-icon="shield-check"></i>
+      <p>Donnez ce code <strong>de vive voix, par SMS ou WhatsApp</strong>, jamais par e-mail. C'est ce qui garantit que c'est bien la bonne personne qui se connecte.</p>
     </div>
     <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" onclick="copyActivationCode()">📋 Copier</button>
-      <a class="btn btn-ghost" id="code-modal-whatsapp" target="_blank" rel="noopener">💬 WhatsApp</a>
-      <a class="btn btn-ghost" id="code-modal-sms">✉️ SMS</a>
+      <button type="button" class="btn btn-secondary" onclick="copyActivationCode()"><i data-icon="copy"></i>Copier</button>
+      <a class="btn btn-secondary" id="code-modal-whatsapp" target="_blank" rel="noopener"><i data-icon="message-circle"></i>WhatsApp</a>
+      <a class="btn btn-secondary" id="code-modal-sms"><i data-icon="send"></i>SMS</a>
     </div>
-    <button type="button" class="btn btn-primary auth-submit" onclick="closeCodeModal()">C'est noté</button>
+    <button type="button" class="btn btn-primary btn-block" onclick="closeCodeModal()">C'est noté</button>
   </div>
 </div>
 
 <!-- Toasts -->
-<div class="toast-container" id="toast-container"></div>
+<div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+<!-- Panneau d'accueil (écrans de connexion, grand écran) -->
+<aside class="gate-aside gate-only" aria-hidden="true">
+  <div class="gate-aside-inner">
+    <p class="eyebrow">Espace familial privé</p>
+    <h1 class="gate-hero">Le patrimoine de la famille, rangé au même endroit.</h1>
+    <p class="gate-lead">Terrains, maisons, bâtiments : chaque bien est localisé, photographié et son dossier légal est suivi. Partagé entre vous, et seulement vous.</p>
+    <ul class="gate-points">
+      <li><i data-icon="map-pin"></i><span>Chaque bien situé sur la carte</span></li>
+      <li><i data-icon="folder-check"></i><span>Titre foncier, permis, contrats : on voit ce qui manque</span></li>
+      <li><i data-icon="shield-check"></i><span>5 membres maximum, validés un par un</span></li>
+    </ul>
+  </div>
+  <svg class="gate-illu" viewBox="0 0 480 200" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 170c80-20 160-10 240-20s160-10 240 5"/>
+    <path d="M0 186c120-10 200-4 300-10s120-6 180 2" opacity=".5"/>
+    <path d="M70 160v-42l30-24 30 24v40"/>
+    <path d="M60 126l40-36 40 36"/>
+    <path d="M92 159v-23h16v22"/>
+    <path d="M210 152V98h80v52"/>
+    <path d="M198 104l52-40 52 40"/>
+    <rect x="224" y="112" width="18" height="16" rx="2"/>
+    <rect x="258" y="112" width="18" height="16" rx="2"/>
+    <path d="M241 151v-15h18v15"/>
+    <path d="M372 152v-30"/><circle cx="372" cy="104" r="19"/>
+    <path d="M410 154v-22"/><circle cx="410" cy="121" r="12"/>
+    <circle cx="418" cy="42" r="13"/>
+    <path d="M150 180l40-10 50 6-40 13z" stroke-dasharray="3 5"/>
+  </svg>
+</aside>
 
 <!-- ============================================================
-     VUE 0 : CONNEXION / DEMANDE D'ACCÈS
+     CONNEXION / DEMANDE D'ACCÈS
 ============================================================ -->
 <div class="view" id="view-auth">
-  <div class="auth-page fade-in">
-    <div class="auth-card">
-      <div class="auth-logo">
-        <div class="logo-icon">🏡</div>
-        <span>Immo<span class="logo-accent">Famille</span></span>
-      </div>
-      <p class="auth-sub">Espace privé de la famille · 5 membres maximum</p>
+  <div class="gate-page">
+    <div class="gate-card fade-in">
+      <h2 class="gate-title">Bienvenue</h2>
+      <p class="gate-text">Connectez-vous à l'espace de la famille, ou demandez à y entrer.</p>
 
-      <div class="auth-tabs" role="tablist">
-        <button type="button" class="auth-tab active" id="tab-login" onclick="setAuthTab('login')">Se connecter</button>
-        <button type="button" class="auth-tab" id="tab-demande" onclick="setAuthTab('demande')">Demander l'accès</button>
+      <div class="segmented" role="tablist">
+        <button type="button" class="segmented-btn active" id="tab-login" onclick="setAuthTab('login')">Se connecter</button>
+        <button type="button" class="segmented-btn" id="tab-demande" onclick="setAuthTab('demande')">Demander l'accès</button>
       </div>
 
-      <!-- Connexion par lien magique -->
+      <!-- Connexion -->
       <form class="auth-pane active" id="pane-login" onsubmit="event.preventDefault(); sendLoginLink();">
-        <div class="form-group">
-          <label class="form-label" for="login-email">Adresse e-mail</label>
-          <input type="email" id="login-email" class="form-control" placeholder="vous@exemple.com" autocomplete="email" required/>
+        <div class="field">
+          <label class="label" for="login-email">Adresse e-mail</label>
+          <input type="email" id="login-email" class="input" placeholder="vous@exemple.com" autocomplete="email" required/>
         </div>
-        <button type="submit" class="btn btn-primary auth-submit" id="btn-login">✉️ Recevoir mon code de connexion</button>
-        <p class="auth-hint">Pas de mot de passe : vous recevez un code par e-mail, puis on vous demande votre code secret.</p>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-login">Recevoir mon code de connexion</button>
+        <p class="hint center">Pas de mot de passe : un code vous est envoyé par e-mail, puis on vous demande votre code secret.</p>
       </form>
 
-      <!-- Étape 2 de la connexion : code reçu par e-mail -->
+      <!-- Code reçu par e-mail -->
       <form class="auth-pane" id="pane-otp" onsubmit="event.preventDefault(); verifyEmailCode();">
-        <div class="stepper">
-          <div class="step active"><span class="step-dot">1</span>E-mail</div>
-          <div class="step-line"></div>
-          <div class="step"><span class="step-dot">2</span>Code secret</div>
+        <ol class="stepper">
+          <li class="step active"><span class="step-dot">1</span>E-mail</li>
+          <li class="step-line"></li>
+          <li class="step"><span class="step-dot">2</span>Code secret</li>
+        </ol>
+        <p class="gate-text">Un e-mail a été envoyé à <strong id="otp-email"></strong>. Saisissez le code qu'il contient.</p>
+        <div class="field">
+          <input type="text" id="otp-code" class="input input-code" inputmode="numeric"
+                 autocomplete="one-time-code" maxlength="10" placeholder="000000" aria-label="Code reçu par e-mail"/>
         </div>
-        <p class="auth-text">Un e-mail a été envoyé à <strong id="otp-email"></strong>.<br>Saisissez le code qu'il contient :</p>
-        <div class="form-group">
-          <input type="text" id="otp-code" class="form-control code-input" inputmode="numeric"
-                 autocomplete="one-time-code" maxlength="10" placeholder="••••••" aria-label="Code reçu par e-mail"/>
-        </div>
-        <button type="submit" class="btn btn-primary auth-submit" id="btn-otp">✅ Vérifier mon e-mail</button>
-        <p class="auth-hint">
-          Vous avez plutôt cliqué sur le lien de l'e-mail ? Cette page se met à jour toute seule.<br>
-          <button type="button" class="link-btn" onclick="resendCode()">Renvoyer un code</button> ·
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-otp">Vérifier mon e-mail</button>
+        <p class="hint center">
+          Vous avez cliqué sur le lien de l'e-mail ? Cette page se met à jour toute seule.<br>
+          <button type="button" class="link-btn" onclick="resendCode()">Renvoyer un code</button>
+          <span aria-hidden="true">·</span>
           <button type="button" class="link-btn" onclick="setAuthTab('login')">Changer d'adresse</button>
         </p>
       </form>
 
-      <!-- Demande d'adhésion -->
+      <!-- Demande d'accès -->
       <form class="auth-pane" id="pane-demande" onsubmit="event.preventDefault(); sendDemande();">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="dem-prenom">Prénom <span class="required">*</span></label>
-            <input type="text" id="dem-prenom" class="form-control" maxlength="80" autocomplete="given-name" required/>
+        <div class="field-row">
+          <div class="field">
+            <label class="label" for="dem-prenom">Prénom</label>
+            <input type="text" id="dem-prenom" class="input" maxlength="80" autocomplete="given-name" required/>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="dem-nom">Nom <span class="required">*</span></label>
-            <input type="text" id="dem-nom" class="form-control" maxlength="80" autocomplete="family-name" required/>
+          <div class="field">
+            <label class="label" for="dem-nom">Nom</label>
+            <input type="text" id="dem-nom" class="input" maxlength="80" autocomplete="family-name" required/>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="dem-email">Adresse e-mail <span class="required">*</span></label>
-          <input type="email" id="dem-email" class="form-control" placeholder="vous@exemple.com" autocomplete="email" required/>
+        <div class="field">
+          <label class="label" for="dem-email">Adresse e-mail</label>
+          <input type="email" id="dem-email" class="input" placeholder="vous@exemple.com" autocomplete="email" required/>
         </div>
-        <button type="submit" class="btn btn-primary auth-submit" id="btn-demande">📨 Envoyer ma demande</button>
-        <p class="auth-hint">L'administrateur de la famille doit valider votre demande avant que vous puissiez vous connecter.</p>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-demande">Envoyer ma demande</button>
+        <p class="hint center">L'administrateur de la famille valide chaque demande. Il vous donnera ensuite un code d'activation.</p>
       </form>
 
-      <div class="auth-message" id="auth-message"></div>
+      <div class="notice" id="auth-message" role="status"></div>
     </div>
   </div>
 </div>
 
 <!-- ============================================================
-     VUE VÉRIFICATION : code secret (2e étape de connexion)
+     CODE SECRET (2e étape de connexion)
 ============================================================ -->
 <div class="view" id="view-verify">
-  <div class="auth-page fade-in">
-    <div class="auth-card">
-      <div class="stepper">
-        <div class="step done"><span class="step-dot">✓</span>E-mail vérifié</div>
-        <div class="step-line done"></div>
-        <div class="step active"><span class="step-dot">2</span>Code secret</div>
-      </div>
-      <h2 class="auth-title" id="verify-title"></h2>
-      <p class="auth-text" id="verify-text"></p>
+  <div class="gate-page">
+    <div class="gate-card fade-in">
+      <ol class="stepper">
+        <li class="step done"><span class="step-dot"><i data-icon="check"></i></span>E-mail vérifié</li>
+        <li class="step-line done"></li>
+        <li class="step active"><span class="step-dot">2</span>Code secret</li>
+      </ol>
+      <h2 class="gate-title" id="verify-title"></h2>
+      <p class="gate-text" id="verify-text"></p>
 
       <form id="verify-form" onsubmit="event.preventDefault(); submitVerify();">
-        <div class="form-group" id="grp-activation">
-          <label class="form-label" for="v-activation">Code d'activation <span class="form-label-hint">— donné par l'administrateur</span></label>
-          <input type="text" id="v-activation" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        <div class="field" id="grp-activation">
+          <label class="label" for="v-activation">Code d'activation <span class="label-hint">donné par l'administrateur</span></label>
+          <input type="text" id="v-activation" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000"/>
         </div>
-        <div class="form-group" id="grp-pin">
-          <label class="form-label" for="v-pin" id="lbl-pin">Code secret</label>
-          <input type="password" id="v-pin" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        <div class="field" id="grp-pin">
+          <label class="label" for="v-pin" id="lbl-pin">Code secret</label>
+          <input type="password" id="v-pin" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
         </div>
-        <div class="form-group" id="grp-pin2">
-          <label class="form-label" for="v-pin2">Confirmez votre code secret</label>
-          <input type="password" id="v-pin2" class="form-control code-input" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        <div class="field" id="grp-pin2">
+          <label class="label" for="v-pin2">Confirmez votre code secret</label>
+          <input type="password" id="v-pin2" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
         </div>
-        <button type="submit" class="btn btn-primary auth-submit" id="btn-verify">🔓 Accéder</button>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-verify">Accéder</button>
       </form>
 
-      <div class="auth-message" id="verify-message"></div>
-      <p class="auth-hint"><button type="button" class="link-btn" onclick="logout()">Se déconnecter</button></p>
+      <div class="notice" id="verify-message" role="status"></div>
+      <p class="hint center"><button type="button" class="link-btn" onclick="logout()">Se déconnecter</button></p>
     </div>
   </div>
 </div>
 
 <!-- ============================================================
-     VUE MESSAGE : attente de validation / configuration
+     ÉCRAN D'ÉTAT : attente, refus, configuration…
 ============================================================ -->
 <div class="view" id="view-message">
-  <div class="auth-page fade-in">
-    <div class="auth-card auth-card-center">
-      <div class="auth-big-icon" id="message-icon">⏳</div>
-      <h2 class="auth-title" id="message-title"></h2>
-      <div class="auth-text" id="message-text"></div>
-      <div class="auth-actions" id="message-actions"></div>
+  <div class="gate-page">
+    <div class="gate-card gate-card-center fade-in">
+      <div class="state-icon" id="message-icon"></div>
+      <h2 class="gate-title" id="message-title"></h2>
+      <div class="gate-text" id="message-text"></div>
+      <div class="state-actions" id="message-actions"></div>
     </div>
   </div>
 </div>
 
 <!-- ============================================================
-     VUE 1 : ACCUEIL
+     ACCUEIL : liste + carte
 ============================================================ -->
 <div class="view" id="view-home">
-  <div class="home-layout">
-    <aside class="panel">
-      <div class="panel-header">
-        <div class="panel-top">
-          <div class="panel-title">
-            Mes biens <span id="count-badge" class="count-badge">0</span>
+  <div class="home-layout" id="home-layout">
+    <section class="list-pane">
+      <div class="list-head">
+        <div class="list-title-row">
+          <div>
+            <h1 class="page-title">Les biens de la famille</h1>
+            <p class="page-sub" id="home-summary"></p>
           </div>
-          <select class="sort-select" id="sort-select" onchange="renderList()">
-            <option value="date-desc">Plus récents</option>
-            <option value="date-asc">Plus anciens</option>
-            <option value="nom-asc">Nom A→Z</option>
-            <option value="nom-desc">Nom Z→A</option>
-          </select>
+          <label class="sort">
+            <span class="sr-only">Trier</span>
+            <select class="select" id="sort-select" onchange="renderList()">
+              <option value="date-desc">Plus récents</option>
+              <option value="date-asc">Plus anciens</option>
+              <option value="nom-asc">Nom A → Z</option>
+              <option value="nom-desc">Nom Z → A</option>
+              <option value="docs-asc">Dossier à compléter</option>
+            </select>
+          </label>
         </div>
-        <div class="search-bar">
-          <span>🔍</span>
-          <input type="text" id="search-input" placeholder="Rechercher un bien…" oninput="onSearch()"/>
-          <button class="search-clear" id="search-clear" onclick="clearSearch()" title="Effacer">✕</button>
+
+        <div class="search-field">
+          <i data-icon="search"></i>
+          <input type="search" id="search-input" placeholder="Rechercher un nom, un quartier…" oninput="onSearch()" aria-label="Rechercher un bien"/>
+          <button class="search-clear" id="search-clear" onclick="clearSearch()" aria-label="Effacer"><i data-icon="x"></i></button>
+        </div>
+
+        <div class="chips" role="group" aria-label="Filtrer par type">
+          <button class="chip filter-btn active" onclick="setFilter('all',this)"><i data-icon="layout-grid"></i>Tous</button>
+          <button class="chip filter-btn" onclick="setFilter('terrain',this)"><i data-icon="trees"></i>Terrains</button>
+          <button class="chip filter-btn" onclick="setFilter('maison',this)"><i data-icon="house"></i>Maisons</button>
+          <button class="chip filter-btn" onclick="setFilter('batiment',this)"><i data-icon="building-2"></i>Bâtiments</button>
+          <button class="chip filter-btn" onclick="setFilter('entreprise',this)"><i data-icon="factory"></i>Entreprises</button>
         </div>
       </div>
-      <div class="filters">
-        <button class="filter-btn active" onclick="setFilter('all',this)">Tous</button>
-        <button class="filter-btn" onclick="setFilter('terrain',this)">🌿 Terrain</button>
-        <button class="filter-btn" onclick="setFilter('maison',this)">🏠 Maison</button>
-        <button class="filter-btn" onclick="setFilter('batiment',this)">🏢 Bâtiment</button>
-        <button class="filter-btn" onclick="setFilter('entreprise',this)">🏭 Entreprise</button>
-      </div>
-      <div class="biens-list" id="biens-list"></div>
-    </aside>
-    <div id="map"></div>
+
+      <div class="biens-grid" id="biens-list"></div>
+    </section>
+
+    <section class="map-pane" aria-label="Carte des biens">
+      <div id="map"></div>
+    </section>
   </div>
+
+  <!-- Mobile : bascule liste / carte -->
+  <button class="map-toggle" id="map-toggle" onclick="toggleMobileMap()">
+    <span id="map-toggle-label">Carte</span><span id="map-toggle-icon"></span>
+  </button>
 </div>
 
 <!-- ============================================================
-     VUE 2 : FORMULAIRE (Ajout ET Modification)
+     FORMULAIRE (ajout et modification)
 ============================================================ -->
 <div class="view" id="view-form">
-  <div class="form-page fade-in">
-    <div class="form-page-header">
-      <h1 id="form-title">✨ Ajouter un bien</h1>
-      <p id="form-subtitle">Renseignez les informations de votre bien.</p>
-    </div>
+  <div class="page page-narrow fade-in">
+    <button class="back-link" onclick="showView('home')"><i data-icon="arrow-left"></i>Retour aux biens</button>
+    <header class="page-header">
+      <h1 class="page-title" id="form-title">Ajouter un bien</h1>
+      <p class="page-sub" id="form-subtitle">Renseignez les informations de votre bien.</p>
+    </header>
 
-    <!-- Infos générales -->
-    <div class="form-card">
-      <div class="form-section-title">📋 Informations générales</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Nom du bien <span class="required">*</span></label>
-          <input type="text" id="f-nom" class="form-control" placeholder="Ex : Terrain Kpobè…"/>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Type <span class="required">*</span></label>
-          <select id="f-type" class="form-control">
-            <option value="">— Choisir —</option>
-            <option value="terrain">🌿 Terrain</option>
-            <option value="maison">🏠 Maison</option>
-            <option value="batiment">🏢 Bâtiment commercial</option>
-            <option value="entreprise">🏭 Entreprise</option>
-          </select>
-        </div>
+    <!-- 1. Informations -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-num">1</span>
+        <div><h2>Informations</h2><p>Comment s'appelle ce bien, et de quoi s'agit-il ?</p></div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Description <span class="required">*</span></label>
-        <textarea id="f-desc" class="form-control" placeholder="Superficie, état, utilisation…"></textarea>
+      <div class="field">
+        <label class="label" for="f-nom">Nom du bien</label>
+        <input type="text" id="f-nom" class="input" placeholder="Ex. : Terrain de Kpobè" maxlength="200"/>
       </div>
-    </div>
+      <div class="field">
+        <span class="label">Type de bien</span>
+        <div class="type-picker" role="radiogroup" aria-label="Type de bien">
+          <button type="button" class="type-option" data-type="terrain"    onclick="setType('terrain')"    role="radio"><i data-icon="trees"></i><span>Terrain</span></button>
+          <button type="button" class="type-option" data-type="maison"     onclick="setType('maison')"     role="radio"><i data-icon="house"></i><span>Maison</span></button>
+          <button type="button" class="type-option" data-type="batiment"   onclick="setType('batiment')"   role="radio"><i data-icon="building-2"></i><span>Bâtiment</span></button>
+          <button type="button" class="type-option" data-type="entreprise" onclick="setType('entreprise')" role="radio"><i data-icon="factory"></i><span>Entreprise</span></button>
+        </div>
+        <input type="hidden" id="f-type"/>
+      </div>
+      <div class="field">
+        <label class="label" for="f-desc">Description</label>
+        <textarea id="f-desc" class="input" rows="4" placeholder="Superficie, état, utilisation actuelle…"></textarea>
+      </div>
+    </section>
 
-    <!-- Localisation -->
-    <div class="form-card">
-      <div class="form-section-title">📍 Localisation <span class="required">*</span></div>
+    <!-- 2. Localisation -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-num">2</span>
+        <div><h2>Localisation</h2><p>Touchez la carte à l'emplacement du bien, ou utilisez votre position.</p></div>
+      </div>
       <div class="geo-row">
-        <button type="button" class="btn-geo" id="btn-geo" onclick="useMyLocation()">📡 Utiliser ma position</button>
-        <span class="map-hint">ou cliquez directement sur la carte ci-dessous</span>
+        <button type="button" class="btn btn-secondary" id="btn-geo" onclick="useMyLocation()"><i data-icon="locate-fixed"></i>Utiliser ma position</button>
       </div>
       <div id="map-picker"></div>
       <div class="coords-display">
-        <input class="coord-field" id="f-lat" placeholder="Latitude" readonly/>
-        <input class="coord-field" id="f-lng" placeholder="Longitude" readonly/>
+        <input class="input input-readonly" id="f-lat" placeholder="Latitude" readonly aria-label="Latitude"/>
+        <input class="input input-readonly" id="f-lng" placeholder="Longitude" readonly aria-label="Longitude"/>
       </div>
-
-      <!-- Champ DMS Google Maps -->
-      <div class="form-group" style="margin-top:10px;">
-        <label class="form-label" for="f-dms">
-          Coller des coordonnées Google Maps
-          <span class="form-label-hint">— ex : 6°22'30.5"N 2°19'08.9"E</span>
-        </label>
+      <details class="disclosure">
+        <summary>Coller des coordonnées Google Maps</summary>
         <div class="dms-row">
-          <input type="text" id="f-dms" class="form-control" placeholder='Ex : 6°22&apos;30.5"N 2°19&apos;08.9"E'/>
-          <button type="button" class="btn-geo" onclick="applyDMS()">🔄 Convertir</button>
+          <input type="text" id="f-dms" class="input" placeholder='6°22&apos;30.5"N 2°19&apos;08.9"E'/>
+          <button type="button" class="btn btn-secondary" onclick="applyDMS()">Convertir</button>
         </div>
-        <p id="dms-error" class="form-error"></p>
+        <p id="dms-error" class="field-error"></p>
+      </details>
+      <div class="field">
+        <label class="label" for="f-adresse">Adresse ou lieu-dit <span class="label-hint">facultatif</span></label>
+        <input type="text" id="f-adresse" class="input" placeholder="Ex. : Quartier Akpakpa, Cotonou"/>
       </div>
+    </section>
 
-      <div class="form-group" style="margin-top:12px;">
-        <label class="form-label">Adresse / Lieu-dit</label>
-        <input type="text" id="f-adresse" class="form-control" placeholder="Ex : Quartier Akpakpa, Cotonou…"/>
+    <!-- 3. Photos -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-num">3</span>
+        <div><h2>Photos</h2><p>La première photo sert de couverture.</p></div>
       </div>
-    </div>
-
-    <!-- Photos -->
-    <div class="form-card">
-      <div class="form-section-title">📸 Photos</div>
       <div class="upload-zone" id="photo-zone"
            onclick="document.getElementById('f-photos').click()"
            ondrop="handleDrop(event,'photo')"
            ondragover="event.preventDefault();this.classList.add('drag-over')"
            ondragleave="this.classList.remove('drag-over')">
-        <div class="upload-icon">🖼️</div>
-        <p><strong>Cliquez</strong> ou glissez vos photos ici</p>
-        <p class="upload-hint">PNG, JPG, WEBP · max 5 Mo chacune</p>
-        <span class="upload-counter" id="photo-counter">5 photos maximum</span>
+        <span class="upload-icon"><i data-icon="camera"></i></span>
+        <p><strong>Ajouter des photos</strong> ou glissez-les ici</p>
+        <p class="hint">JPG, PNG, WEBP · 5 Mo max chacune · <span id="photo-counter">5 photos maximum</span></p>
         <input type="file" id="f-photos" multiple accept="image/*" hidden onchange="handlePhotos(this.files)"/>
       </div>
       <div class="preview-grid" id="photo-preview"></div>
-    </div>
+    </section>
 
-    <!-- Documents légaux structurés -->
-    <div class="form-card">
-      <div class="form-section-title">📋 Documents légaux</div>
-      <div class="docs-progress">
-        <div class="docs-progress-bar-wrap">
-          <div class="docs-progress-bar" id="docs-progress-bar"></div>
-        </div>
-        <div class="docs-progress-label">
-          <span id="docs-progress-text">0 document sur 4 présent</span>
-          <span id="docs-progress-pct">0%</span>
-        </div>
+    <!-- 4. Dossier légal -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-num">4</span>
+        <div><h2>Dossier légal</h2><p>Cochez les documents que la famille possède déjà.</p></div>
       </div>
-      <div class="checklist-section" id="checklist-container"></div>
-    </div>
+      <div class="progress-block">
+        <div class="progress"><div class="progress-bar" id="docs-progress-bar"></div></div>
+        <div class="progress-label"><span id="docs-progress-text">0 document sur 4</span><span id="docs-progress-pct">0%</span></div>
+      </div>
+      <div class="checklist" id="checklist-container"></div>
+    </section>
 
-    <!-- Fichiers joints -->
-    <div class="form-card">
-      <div class="form-section-title">📎 Fichiers joints (optionnel)</div>
+    <!-- 5. Fichiers joints -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-num">5</span>
+        <div><h2>Fichiers joints <span class="label-hint">facultatif</span></h2><p>Scans des actes, plans, factures…</p></div>
+      </div>
       <div class="upload-zone" id="doc-zone"
            onclick="document.getElementById('f-docs').click()"
            ondrop="handleDrop(event,'doc')"
            ondragover="event.preventDefault();this.classList.add('drag-over')"
            ondragleave="this.classList.remove('drag-over')">
-        <div class="upload-icon">📎</div>
-        <p><strong>Cliquez</strong> ou glissez vos fichiers ici</p>
-        <p class="upload-hint">PDF, images, Word… · max 10 Mo chacun</p>
-        <span class="upload-counter" id="doc-counter">5 fichiers maximum</span>
+        <span class="upload-icon"><i data-icon="paperclip"></i></span>
+        <p><strong>Joindre des fichiers</strong> ou glissez-les ici</p>
+        <p class="hint">PDF, images, Word · 10 Mo max chacun · <span id="doc-counter">5 fichiers maximum</span></p>
         <input type="file" id="f-docs" multiple accept=".pdf,image/*,.doc,.docx" hidden onchange="handleDocs(this.files)"/>
       </div>
-      <div class="doc-list" id="doc-preview"></div>
-    </div>
+      <div class="file-list" id="doc-preview"></div>
+    </section>
 
     <div class="form-actions">
       <button type="button" class="btn btn-ghost" onclick="showView('home')">Annuler</button>
-      <button type="button" class="btn btn-primary" id="btn-save" onclick="saveBien()">💾 Enregistrer</button>
+      <button type="button" class="btn btn-primary btn-lg" id="btn-save" onclick="saveBien()">Enregistrer le bien</button>
     </div>
   </div>
 </div>
 
 <!-- ============================================================
-     VUE 3 : DÉTAIL
+     FICHE D'UN BIEN
 ============================================================ -->
 <div class="view" id="view-detail">
-  <div class="detail-page fade-in" id="detail-content"></div>
+  <div class="page page-wide fade-in" id="detail-content"></div>
 </div>
 
 <!-- ============================================================
-     VUE 4 : ADMINISTRATION DE LA FAMILLE
+     ADMINISTRATION DE LA FAMILLE
 ============================================================ -->
 <div class="view" id="view-admin">
-  <div class="form-page fade-in">
-    <div class="form-page-header">
-      <h1>👑 Gestion de la famille</h1>
-      <p>Validez les demandes d'accès. 5 membres maximum, vous compris.</p>
-    </div>
+  <div class="page page-narrow fade-in">
+    <header class="page-header">
+      <h1 class="page-title">La famille</h1>
+      <p class="page-sub">Validez les demandes d'accès et gérez les codes. 5 membres maximum, vous compris.</p>
+    </header>
 
-    <div class="form-card">
-      <div class="form-section-title">👨‍👩‍👧 Places occupées</div>
-      <div class="docs-progress">
-        <div class="docs-progress-bar-wrap"><div class="docs-progress-bar" id="quota-bar"></div></div>
-        <div class="docs-progress-label"><span id="quota-text">—</span><span id="quota-pct"></span></div>
+    <section class="panel">
+      <div class="quota">
+        <div>
+          <div class="quota-title" id="quota-text">—</div>
+          <div class="progress"><div class="progress-bar" id="quota-bar"></div></div>
+        </div>
+        <span class="quota-pct" id="quota-pct"></span>
       </div>
-      <label class="form-label">Lien à envoyer à vos proches pour qu'ils fassent leur demande</label>
+      <label class="label" for="share-link">Lien à envoyer à vos proches pour qu'ils fassent leur demande</label>
       <div class="dms-row">
-        <input type="text" id="share-link" class="form-control" readonly onclick="this.select()"/>
-        <button type="button" class="btn-geo" onclick="copyShareLink()">📋 Copier</button>
+        <input type="text" id="share-link" class="input input-readonly" readonly onclick="this.select()"/>
+        <button type="button" class="btn btn-secondary" onclick="copyShareLink()"><i data-icon="copy"></i>Copier</button>
       </div>
-    </div>
+    </section>
 
-    <div class="form-card">
-      <div class="form-section-title">📨 Demandes en attente <span class="count-badge" id="admin-pending-count">0</span></div>
-      <div class="membre-list" id="admin-pending"></div>
-    </div>
+    <section class="panel">
+      <div class="panel-title-row"><h2>Demandes en attente</h2><span class="count-pill" id="admin-pending-count">0</span></div>
+      <div class="member-list" id="admin-pending"></div>
+    </section>
 
-    <div class="form-card">
-      <div class="form-section-title">✅ Membres</div>
-      <div class="membre-list" id="admin-membres"></div>
-    </div>
+    <section class="panel">
+      <div class="panel-title-row"><h2>Membres</h2></div>
+      <div class="member-list" id="admin-membres"></div>
+    </section>
 
-    <div class="form-card" id="admin-refuses-card">
-      <div class="form-section-title">🚫 Demandes refusées</div>
-      <div class="membre-list" id="admin-refuses"></div>
-    </div>
-
-    <div class="form-actions">
-      <button type="button" class="btn btn-ghost" onclick="showView('home')">← Retour à la carte</button>
-    </div>
+    <section class="panel" id="admin-refuses-card">
+      <div class="panel-title-row"><h2>Demandes refusées</h2></div>
+      <div class="member-list" id="admin-refuses"></div>
+    </section>
   </div>
 </div>
 
@@ -417,10 +494,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
-<!-- Configuration Supabase (à renseigner) -->
+<!-- Configuration Supabase -->
 <script src="config.js"></script>
 
 <!-- Notre JS -->
+<script src="icons.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

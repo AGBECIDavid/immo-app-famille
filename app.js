@@ -31,10 +31,10 @@ const ALLOWED_DOC_MIMES = [
 ];
 
 const TYPE_CONFIG = {
-  terrain:   { emoji: '🌿', label: 'Terrain',             color: '#7B9E6B', badgeClass: 'badge-terrain'   },
-  maison:    { emoji: '🏠', label: 'Maison',              color: '#5B7FA6', badgeClass: 'badge-maison'    },
-  batiment:  { emoji: '🏢', label: 'Bâtiment commercial', color: '#B4783C', badgeClass: 'badge-batiment'  },
-  entreprise:{ emoji: '🏭', label: 'Entreprise',          color: '#7850A0', badgeClass: 'badge-entreprise'}
+  terrain:    { icon: 'trees',      label: 'Terrain',             cssVar: '--terrain'    },
+  maison:     { icon: 'house',      label: 'Maison',              cssVar: '--maison'     },
+  batiment:   { icon: 'building-2', label: 'Bâtiment commercial', cssVar: '--batiment'   },
+  entreprise: { icon: 'factory',    label: 'Entreprise',          cssVar: '--entreprise' }
 };
 
 const LEGAL_DOCS_LIST = [
@@ -174,7 +174,7 @@ function applyDMS() {
 
   setPickerPosition(result.lat, result.lng);
   document.getElementById('f-dms').value = '';
-  showToast(`✅ Converti : ${result.lat}, ${result.lng}`, 'success');
+  showToast(`Converti : ${result.lat}, ${result.lng}`, 'success');
 }
 
 /* ============================================================
@@ -208,7 +208,7 @@ async function loadBiens() {
   const { data, error } = await sb.from('biens').select('*').order('created_at', { ascending: false });
   if (error) {
     console.error('Erreur chargement biens :', error);
-    showToast('⚠️ Impossible de charger les biens : ' + error.message, 'error');
+    showToast('Impossible de charger les biens : ' + error.message, 'error');
     return false;
   }
   const biens = data.map(rowToBien);
@@ -308,9 +308,35 @@ function initTheme() {
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
+  const dark = theme === 'dark';
   const btn = document.getElementById('theme-btn');
-  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  if (btn) btn.innerHTML = icon(dark ? 'sun' : 'moon');
+  const menuIcon  = document.getElementById('theme-menu-icon');
+  const menuLabel = document.getElementById('theme-menu-label');
+  if (menuIcon)  menuIcon.innerHTML = icon(dark ? 'sun' : 'moon');
+  if (menuLabel) menuLabel.textContent = dark ? 'Thème clair' : 'Thème sombre';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#161412' : '#FAF7F2');
+  baseLayers.forEach(layer => layer.setUrl(tileUrl()));
   try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* ignore */ }
+}
+
+/* Fond de carte sobre (CARTO), clair ou sombre selon le thème */
+const baseLayers = [];
+
+function tileUrl() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return `https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`;
+}
+
+function addBaseLayer(map) {
+  const layer = L.tileLayer(tileUrl(), {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20
+  }).addTo(map);
+  baseLayers.push(layer);
+  return layer;
 }
 
 function toggleTheme() {
@@ -361,9 +387,10 @@ function showView(name, bienId) {
     hideLoader();
     window.scrollTo(0, 0);
 
-    // Afficher le FAB seulement sur la page d'accueil
-    const fab = document.getElementById('fab-add');
-    if (fab) fab.style.display = (name === 'home') ? '' : 'none';
+    closeUserMenu();
+    document.querySelectorAll('.topnav-link').forEach(l =>
+      l.classList.toggle('active', l.dataset.nav === name || (l.dataset.nav === 'home' && ['form', 'detail'].includes(name))));
+    setMobileMap(false);
 
     if (name === 'home') {
       initMap();
@@ -394,27 +421,35 @@ function initMap() {
     return;
   }
   // Centre par défaut : Cotonou
-  mapInstance = L.map('map').setView([6.3703, 2.3912], 7);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 19
-  }).addTo(mapInstance);
+  mapInstance = L.map('map', { zoomControl: false }).setView([6.3703, 2.3912], 7);
+  L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+  addBaseLayer(mapInstance);
+  // Vue éloignée : pilules réduites à l'icône pour éviter qu'elles se chevauchent
+  const compact = () => document.getElementById('map').classList.toggle('map-compact', mapInstance.getZoom() < 12);
+  mapInstance.on('zoomend', compact);
+  compact();
   refreshMapMarkers();
   // Rafraîchir la taille après affichage
   setTimeout(() => mapInstance.invalidateSize(), 200);
 }
 
 function typeInfo(type) {
-  return TYPE_CONFIG[type] || { emoji: '🏠', label: type || 'Bien', color: '#8A8780', badgeClass: 'badge-maison' };
+  return TYPE_CONFIG[type] || { icon: 'house', label: type || 'Bien', cssVar: '--muted' };
 }
 
-function makeMarkerIcon(type) {
-  const t = typeInfo(type);
+// Couleur du type, utilisable en style inline : style="--type-color: var(--terrain)"
+function typeStyle(type) {
+  return `--type-color: var(${typeInfo(type).cssVar})`;
+}
+
+function makeMarkerIcon(b) {
+  const t = typeInfo(b.type);
   return L.divIcon({
-    className: '',
-    html: `<div style="background:${t.color};color:white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:34px;height:34px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(0,0,0,.25);border:2.5px solid white"><span style="transform:rotate(45deg);font-size:14px">${t.emoji}</span></div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 34]
+    className: 'pin-wrap',
+    html: `<div class="pin" style="${typeStyle(b.type)}">${icon(t.icon)}<span>${esc(b.nom)}</span></div>`,
+    iconSize: null,
+    iconAnchor: [0, 0],
+    popupAnchor: [0, -40]
   });
 }
 
@@ -428,34 +463,32 @@ function refreshMapMarkers() {
 
   biens.forEach(b => {
     if (b.lat == null || b.lng == null) return;
-    const marker = L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b.type) })
+    const marker = L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b), riseOnHover: true })
       .addTo(mapInstance)
-      .bindPopup(buildPopup(b), { maxWidth: 240 });
+      .bindPopup(buildPopup(b), { maxWidth: 240, minWidth: 240, closeButton: true });
 
-    marker.on('click', () => {
-      highlightCard(b.id);
-      mapInstance.flyTo([b.lat, b.lng], 14, { duration: .8 });
-    });
+    marker.on('click', () => highlightCard(b.id));
 
     mapMarkers[b.id] = marker;
     bounds.push([b.lat, b.lng]);
   });
 
   if (bounds.length === 1)    mapInstance.setView(bounds[0], 14);
-  else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [50, 50] });
+  else if (bounds.length > 1) mapInstance.fitBounds(bounds, { padding: [60, 60] });
 }
 
 function buildPopup(b) {
   const t = typeInfo(b.type);
-  const r = parseInt(t.color.slice(1,3),16),
-        g = parseInt(t.color.slice(3,5),16),
-        bl = parseInt(t.color.slice(5,7),16);
-  const badgeStyle = `background:rgba(${r},${g},${bl},.15);color:${t.color}`;
+  const media = b.photos && b.photos.length
+    ? `<img src="${escAttr(photoSrc(b.photos[0]))}" alt=""/>`
+    : `<div class="bien-placeholder" style="${typeStyle(b.type)}">${icon(t.icon)}</div>`;
   return `<div class="map-popup">
-    <strong>${esc(b.nom)}</strong>
-    <span class="popup-badge" style="${badgeStyle}">${t.emoji} ${t.label}</span>
-    ${b.adresse ? `<br><small style="color:#8A8780;margin-top:4px;display:block">📍 ${esc(b.adresse)}</small>` : ''}
-    <a class="voir-btn" href="#" onclick="showView('detail','${b.id}');return false;">Voir le détail →</a>
+    <div class="popup-media">${media}</div>
+    <div class="popup-body">
+      <strong>${esc(b.nom)}</strong>
+      <small>${esc(t.label)}${b.adresse ? ' · ' + esc(b.adresse) : ''}</small>
+      <button class="btn btn-primary" onclick="showView('detail','${b.id}')">Voir la fiche</button>
+    </div>
   </div>`;
 }
 
@@ -466,6 +499,31 @@ function highlightCard(id) {
     card.classList.add('highlighted');
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+}
+
+// Survol d'une carte de la liste → sa pilule s'allume sur la carte
+function setMarkerActive(id, active) {
+  const marker = mapMarkers[id];
+  const el = marker && marker.getElement();
+  if (!el) return;
+  el.classList.toggle('is-active', active);
+  const pin = el.querySelector('.pin');
+  if (pin) pin.classList.toggle('active', active);
+}
+
+/* Mobile : bascule entre la liste et la carte */
+function setMobileMap(show) {
+  const layout = document.getElementById('home-layout');
+  if (!layout) return;
+  layout.classList.toggle('show-map', show);
+  document.getElementById('map-toggle-label').textContent = show ? 'Liste' : 'Carte';
+  document.getElementById('map-toggle-icon').innerHTML = icon(show ? 'list' : 'map');
+  // La carte a été créée cachée : on recalcule sa taille puis on recadre sur les biens
+  if (show && mapInstance) setTimeout(() => { mapInstance.invalidateSize(); refreshMapMarkers(); }, 50);
+}
+
+function toggleMobileMap() {
+  setMobileMap(!document.getElementById('home-layout').classList.contains('show-map'));
 }
 
 /* ============================================================
@@ -497,7 +555,18 @@ function clearSearch() {
 function renderList() {
   const search = normalize(document.getElementById('search-input')?.value || '');
   const sort   = document.getElementById('sort-select')?.value || 'date-desc';
-  let biens    = getBiens();
+  const all    = getBiens();
+  let biens    = all.slice();
+
+  // Résumé en haut de la liste
+  const complets = all.filter(b => getStatut(b).complet).length;
+  const summary  = document.getElementById('home-summary');
+  if (summary) {
+    summary.textContent = all.length
+      ? `${all.length} bien${all.length > 1 ? 's' : ''} · ${complets} dossier${complets > 1 ? 's' : ''} complet${complets > 1 ? 's' : ''}` +
+        (all.length - complets ? ` · ${all.length - complets} à compléter` : '')
+      : 'Aucun bien enregistré pour le moment';
+  }
 
   if (currentFilter !== 'all') biens = biens.filter(b => b.type === currentFilter);
 
@@ -511,42 +580,71 @@ function renderList() {
     if (sort === 'nom-asc')  return a.nom.localeCompare(b.nom, 'fr');
     if (sort === 'nom-desc') return b.nom.localeCompare(a.nom, 'fr');
     if (sort === 'date-asc') return new Date(a.createdAt) - new Date(b.createdAt);
+    if (sort === 'docs-asc') return getStatut(a).presents - getStatut(b).presents;
     return new Date(b.createdAt) - new Date(a.createdAt);
   });
-
-  const countBadge = document.getElementById('count-badge');
-  if (countBadge) countBadge.textContent = biens.length;
 
   const container = document.getElementById('biens-list');
   if (!container) return;
 
   if (!biens.length) {
-    const msg = search
-      ? `Aucun résultat pour "<strong>${esc(search)}</strong>"`
-      : 'Aucun bien trouvé.<br>Cliquez sur <strong>＋ Ajouter</strong> pour commencer.';
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🏡</div><p>${msg}</p></div>`;
+    container.innerHTML = all.length
+      ? `<div class="empty-state">
+           <div class="state-icon">${icon('search')}</div>
+           <h3>Aucun résultat</h3>
+           <p>Aucun bien ne correspond à votre recherche ou à ce filtre.</p>
+           <button class="btn btn-secondary" onclick="clearSearch(); setFilter('all', document.querySelector('.filter-btn'))">Tout afficher</button>
+         </div>`
+      : `<div class="empty-state">
+           <div class="state-icon">${icon('house-plus')}</div>
+           <h3>Commencez par votre premier bien</h3>
+           <p>Ajoutez un terrain, une maison ou un bâtiment : sa position, ses photos et ses documents.</p>
+           <button class="btn btn-primary" onclick="showView('form', null)">${icon('plus')}Ajouter un bien</button>
+         </div>`;
     return;
   }
 
   container.innerHTML = biens.map(b => {
-    const t       = typeInfo(b.type);
-    const statut  = getStatut(b);
-    const imgHtml = b.photos && b.photos.length
-      ? `<img class="bien-card-img" src="${escAttr(photoSrc(b.photos[0]))}" alt="${esc(b.nom)}" loading="lazy"/>`
-      : `<div class="bien-card-img-placeholder">${t.emoji}</div>`;
+    const t      = typeInfo(b.type);
+    const statut = getStatut(b);
+    const media  = b.photos && b.photos.length
+      ? `<img src="${escAttr(photoSrc(b.photos[0]))}" alt="" loading="lazy"/>`
+      : `<div class="bien-placeholder">${icon(t.icon)}</div>`;
 
-    return `<div class="bien-card" id="card-${b.id}" onclick="showView('detail','${b.id}')">
-      ${imgHtml}
-      <div class="bien-card-body">
-        <div class="bien-card-top">
-          <div class="bien-card-name">${esc(b.nom)}</div>
-          <span class="badge ${t.badgeClass}">${t.emoji} ${t.label}</span>
-        </div>
-        ${b.adresse ? `<div class="bien-card-loc">📍 ${esc(b.adresse)}</div>` : ''}
-        <span class="statut-badge ${statut.classe}">${statut.icone} ${statut.texte}</span>
+    return `<article class="bien-card" id="card-${b.id}" tabindex="0" style="${typeStyle(b.type)}"
+              onclick="showView('detail','${b.id}')"
+              onkeydown="if (event.key === 'Enter') showView('detail','${b.id}')"
+              onmouseenter="setMarkerActive('${b.id}', true)" onmouseleave="setMarkerActive('${b.id}', false)">
+      <div class="bien-media">
+        ${media}
+        <span class="type-tag">${icon(t.icon)}${esc(t.label)}</span>
       </div>
-    </div>`;
+      <div class="bien-body">
+        <h3 class="bien-name">${esc(b.nom)}</h3>
+        ${b.adresse ? `<p class="bien-loc">${icon('map-pin')}${esc(b.adresse)}</p>` : ''}
+        <div class="bien-foot">
+          ${statutHtml(statut)}
+          <div class="progress"><div class="progress-bar${statut.complet ? ' full' : ''}" style="width:${statut.pct}%"></div></div>
+        </div>
+      </div>
+    </article>`;
   }).join('');
+}
+
+/* ============================================================
+   🏷️ TYPE DE BIEN (cartes cliquables)
+============================================================ */
+function setType(type) {
+  document.getElementById('f-type').value = type || '';
+  document.querySelectorAll('.type-option').forEach(o => {
+    const on = o.dataset.type === type;
+    o.classList.toggle('selected', on);
+    o.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  // La pilule de la carte reprend l'icône du type
+  if (pickerMarker) {
+    pickerMarker.setIcon(makeMarkerIcon({ type, nom: document.getElementById('f-nom').value.trim() || 'Position du bien' }));
+  }
 }
 
 /* ============================================================
@@ -564,10 +662,7 @@ function initMapPicker() {
     }
 
     mapPicker = L.map('map-picker').setView([6.3703, 2.3912], 7);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 19
-    }).addTo(mapPicker);
+    addBaseLayer(mapPicker);
 
     mapPicker.on('click', e => setPickerPosition(e.latlng.lat, e.latlng.lng));
     setTimeout(() => mapPicker.invalidateSize(), 200);
@@ -586,8 +681,10 @@ function setPickerPosition(lat, lng) {
   document.getElementById('f-lng').value = parseFloat(lng).toFixed(6);
 
   if (pickerMarker) mapPicker.removeLayer(pickerMarker);
-  pickerMarker = L.marker([lat, lng]).addTo(mapPicker)
-    .bindPopup('📍 Position sélectionnée').openPopup();
+  const type = document.getElementById('f-type').value;
+  pickerMarker = L.marker([lat, lng], {
+    icon: makeMarkerIcon({ type, nom: document.getElementById('f-nom').value.trim() || 'Position du bien' })
+  }).addTo(mapPicker);
   mapPicker.setView([lat, lng], 14);
 }
 
@@ -598,28 +695,28 @@ function useMyLocation() {
   const btn = document.getElementById('btn-geo');
 
   if (!navigator.geolocation) {
-    return showToast('⚠️ Géolocalisation non supportée par ce navigateur.', 'error');
+    return showToast('Géolocalisation non supportée par ce navigateur.', 'error');
   }
 
-  btn.textContent = '⏳ Localisation…';
+  btn.innerHTML = icon('locate-fixed') + 'Localisation…';
   btn.classList.add('loading');
 
   navigator.geolocation.getCurrentPosition(
     pos => {
-      btn.textContent = '📡 Utiliser ma position';
+      btn.innerHTML = icon('locate-fixed') + 'Utiliser ma position';
       btn.classList.remove('loading');
       setPickerPosition(pos.coords.latitude, pos.coords.longitude);
-      showToast('✅ Position détectée !', 'success');
+      showToast('Position détectée !', 'success');
     },
     err => {
-      btn.textContent = '📡 Utiliser ma position';
+      btn.innerHTML = icon('locate-fixed') + 'Utiliser ma position';
       btn.classList.remove('loading');
       const msgs = {
         1: 'Permission refusée. Autorisez la localisation dans votre navigateur.',
         2: 'Position indisponible.',
         3: 'Délai dépassé. Réessayez.'
       };
-      showToast('⚠️ ' + (msgs[err.code] || 'Erreur de géolocalisation.'), 'error');
+      showToast('' + (msgs[err.code] || 'Erreur de géolocalisation.'), 'error');
     },
     { timeout: 10000, enableHighAccuracy: true }
   );
@@ -631,13 +728,13 @@ function useMyLocation() {
 function handlePhotos(files) {
   Array.from(files).forEach(file => {
     if (!ALLOWED_IMG_MIMES.includes(file.type)) {
-      return showToast(`⚠️ "${sanitizeFileName(file.name)}" n'est pas une image valide (JPEG, PNG, WEBP, GIF).`, 'error');
+      return showToast(`"${sanitizeFileName(file.name)}" n'est pas une image valide (JPEG, PNG, WEBP, GIF).`, 'error');
     }
     if (file.size > MAX_IMG_SIZE) {
-      return showToast(`⚠️ "${sanitizeFileName(file.name)}" dépasse 5 Mo.`, 'error');
+      return showToast(`"${sanitizeFileName(file.name)}" dépasse 5 Mo.`, 'error');
     }
     if (formPhotos.length >= MAX_PHOTOS) {
-      return showToast(`⚠️ Maximum ${MAX_PHOTOS} photos.`, 'error');
+      return showToast(`Maximum ${MAX_PHOTOS} photos.`, 'error');
     }
 
     // Le fichier sera envoyé dans Supabase au moment de l'enregistrement
@@ -660,14 +757,15 @@ function renderPhotoPreviews() {
   container.innerHTML = formPhotos.map((p, i) =>
     `<div class="preview-item">
       <img src="${escAttr(photoSrc(p))}" alt="${esc(p.name)}"/>
-      <button type="button" class="remove-btn" onclick="removePhoto(${i})">✕</button>
+      ${i === 0 ? '<span class="cover-tag">Couverture</span>' : ''}
+      <button type="button" class="remove-btn" onclick="removePhoto(${i})" aria-label="Retirer la photo">${icon('x')}</button>
     </div>`
   ).join('');
 
   const rem = MAX_PHOTOS - formPhotos.length;
   document.getElementById('photo-counter').textContent = formPhotos.length === 0
     ? `${MAX_PHOTOS} photos maximum`
-    : `${formPhotos.length}/${MAX_PHOTOS} · encore ${rem} possible(s)`;
+    : `${formPhotos.length}/${MAX_PHOTOS} · encore ${rem} possible${rem > 1 ? 's' : ''}`;
 }
 
 function removePhoto(i) {
@@ -682,13 +780,13 @@ function removePhoto(i) {
 function handleDocs(files) {
   Array.from(files).forEach(file => {
     if (!ALLOWED_DOC_MIMES.includes(file.type)) {
-      return showToast(`⚠️ "${sanitizeFileName(file.name)}" : type non autorisé (PDF, image, Word).`, 'error');
+      return showToast(`"${sanitizeFileName(file.name)}" : type non autorisé (PDF, image, Word).`, 'error');
     }
     if (file.size > MAX_DOC_SIZE) {
-      return showToast(`⚠️ "${sanitizeFileName(file.name)}" dépasse 10 Mo.`, 'error');
+      return showToast(`"${sanitizeFileName(file.name)}" dépasse 10 Mo.`, 'error');
     }
     if (formDocs.length >= MAX_DOCS) {
-      return showToast(`⚠️ Maximum ${MAX_DOCS} documents.`, 'error');
+      return showToast(`Maximum ${MAX_DOCS} documents.`, 'error');
     }
 
     formDocs.push({ name: sanitizeFileName(file.name), size: file.size, file });
@@ -700,18 +798,18 @@ function handleDocs(files) {
 function renderDocPreviews() {
   const container = document.getElementById('doc-preview');
   container.innerHTML = formDocs.map((d, i) =>
-    `<div class="doc-item">
-      <span class="doc-icon">${docIcon(d.name)}</span>
-      <span class="doc-name">${esc(d.name)}</span>
-      <span class="doc-size">${formatSize(d.size)}</span>
-      <button type="button" class="remove-doc" onclick="removeDoc(${i})">✕</button>
+    `<div class="file-item">
+      <span class="file-icon">${icon(docIcon(d.name))}</span>
+      <span class="file-name">${esc(d.name)}</span>
+      <span class="file-size">${formatSize(d.size)}</span>
+      <button type="button" class="file-remove" onclick="removeDoc(${i})" aria-label="Retirer le fichier">${icon('x')}</button>
     </div>`
   ).join('');
 
   const rem = MAX_DOCS - formDocs.length;
   document.getElementById('doc-counter').textContent = formDocs.length === 0
-    ? `${MAX_DOCS} documents maximum`
-    : `${formDocs.length}/${MAX_DOCS} · encore ${rem} possible(s)`;
+    ? `${MAX_DOCS} fichiers maximum`
+    : `${formDocs.length}/${MAX_DOCS} · encore ${rem} possible${rem > 1 ? 's' : ''}`;
 }
 
 function removeDoc(i) {
@@ -726,15 +824,19 @@ function getStatut(b) {
   const legalDocs = b.legalDocs || [];
   const total     = LEGAL_DOCS_LIST.length;
   const presents  = legalDocs.filter(d => d.present).length;
-
-  if (presents === total) {
-    return { texte: 'Complet', icone: '✅', classe: 'statut-complet' };
-  }
+  const complet   = presents === total;
   return {
-    texte: `Incomplet (${presents}/${total})`,
-    icone: '⚠️',
-    classe: 'statut-incomplet'
+    complet,
+    presents,
+    total,
+    pct:    total ? Math.round(presents / total * 100) : 0,
+    texte:  complet ? 'Dossier complet' : `${presents}/${total} documents`,
+    classe: complet ? 'statut-complet' : 'statut-incomplet'
   };
+}
+
+function statutHtml(statut) {
+  return `<span class="statut ${statut.classe}">${icon(statut.complet ? 'circle-check' : 'triangle-alert')}${statut.texte}</span>`;
 }
 
 function renderChecklist(existingDocs) {
@@ -754,13 +856,13 @@ function renderChecklist(existingDocs) {
                ${checked ? 'checked' : ''}
                onchange="onChecklistChange('${def.id}', this.checked)"/>
         <label class="checklist-label" for="chk-${def.id}">${def.label}</label>
-        <span class="checklist-status">${checked ? '✅' : '—'}</span>
+        <span class="checklist-status">${checked ? 'Disponible' : 'Manquant'}</span>
       </div>
       <div class="checklist-fields">
-        <input type="text" class="checklist-input" id="ref-${def.id}"
-               placeholder="Référence / Numéro" value="${escAttr(ref)}"/>
-        <input type="text" class="checklist-input" id="det-${def.id}"
-               placeholder="Détenteur" value="${escAttr(det)}"/>
+        <input type="text" class="input checklist-input" id="ref-${def.id}"
+               placeholder="Référence / numéro" value="${escAttr(ref)}" aria-label="Référence ${escAttr(def.label)}"/>
+        <input type="text" class="input checklist-input" id="det-${def.id}"
+               placeholder="Qui détient l'original ?" value="${escAttr(det)}" aria-label="Détenteur ${escAttr(def.label)}"/>
       </div>
     </div>`;
   }).join('');
@@ -772,13 +874,8 @@ function onChecklistChange(docId, checked) {
   const item = document.getElementById('cli-' + docId);
   if (!item) return;
   const status = item.querySelector('.checklist-status');
-  if (checked) {
-    item.classList.add('has-doc');
-    if (status) status.textContent = '✅';
-  } else {
-    item.classList.remove('has-doc');
-    if (status) status.textContent = '—';
-  }
+  item.classList.toggle('has-doc', checked);
+  if (status) status.textContent = checked ? 'Disponible' : 'Manquant';
   updateChecklistProgress();
 }
 
@@ -794,8 +891,8 @@ function updateChecklistProgress() {
   const text = document.getElementById('docs-progress-text');
   const pctEl= document.getElementById('docs-progress-pct');
 
-  if (bar)   bar.style.width = pct + '%';
-  if (text)  text.textContent = `${presents} document${presents > 1 ? 's' : ''} sur ${total} présent${presents > 1 ? 's' : ''}`;
+  if (bar)   { bar.style.width = pct + '%'; bar.classList.toggle('full', presents === total); }
+  if (text)  text.textContent = `${presents} document${presents > 1 ? 's' : ''} sur ${total}`;
   if (pctEl) pctEl.textContent = pct + '%';
 }
 
@@ -827,25 +924,25 @@ async function saveBien() {
   const lng  = document.getElementById('f-lng').value;
 
   // --- Validation ---
-  if (!nom)        return showToast('⚠️ Veuillez saisir un nom.', 'error');
-  if (!type)       return showToast('⚠️ Veuillez choisir un type.', 'error');
-  if (!desc)       return showToast('⚠️ Veuillez saisir une description.', 'error');
-  if (!lat || !lng) return showToast('⚠️ Veuillez définir la position GPS sur la carte.', 'error');
+  if (!nom)        return showToast('Veuillez saisir un nom.', 'error');
+  if (!type)       return showToast('Veuillez choisir un type.', 'error');
+  if (!desc)       return showToast('Veuillez saisir une description.', 'error');
+  if (!lat || !lng) return showToast('Veuillez définir la position GPS sur la carte.', 'error');
 
   const latF = parseFloat(lat);
   const lngF = parseFloat(lng);
-  if (isNaN(latF) || latF < -90  || latF > 90)  return showToast('⚠️ Latitude invalide.', 'error');
-  if (isNaN(lngF) || lngF < -180 || lngF > 180) return showToast('⚠️ Longitude invalide.', 'error');
+  if (isNaN(latF) || latF < -90  || latF > 90)  return showToast('Latitude invalide.', 'error');
+  if (isNaN(lngF) || lngF < -180 || lngF > 180) return showToast('Longitude invalide.', 'error');
 
   const old = editingId ? getBiens().find(b => b.id === editingId) : null;
-  if (editingId && !old) return showToast('⚠️ Bien introuvable.', 'error');
+  if (editingId && !old) return showToast('Bien introuvable.', 'error');
 
   const id       = editingId || newId();
   const uploaded = [];
   const saveBtn  = document.getElementById('btn-save');
   saving = true;
   showLoader();
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Enregistrement…'; }
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Enregistrement…'; }
 
   try {
     const photos = await uploadFiles(id, 'photos', formPhotos, uploaded);
@@ -879,7 +976,7 @@ async function saveBien() {
       await removeStoragePaths([...old.photos, ...old.docs].map(f => f.path).filter(p => !kept.has(p)));
     }
 
-    showToast(editingId ? '✅ Bien modifié !' : '✅ Bien enregistré !', 'success');
+    showToast(editingId ? 'Bien modifié !' : 'Bien enregistré !', 'success');
     editingId  = null;
     formPhotos = [];
     formDocs   = [];
@@ -889,11 +986,11 @@ async function saveBien() {
     // Annuler les envois de cette tentative pour ne pas laisser de fichiers orphelins
     await removeStoragePaths(uploaded.map(u => u.path));
     uploaded.forEach(u => { delete u.item.path; });
-    showToast('⚠️ Enregistrement impossible : ' + e.message, 'error');
+    showToast('Enregistrement impossible : ' + e.message, 'error');
   } finally {
     saving = false;
     hideLoader();
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Enregistrer'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Enregistrer le bien'; }
   }
 }
 
@@ -904,7 +1001,7 @@ function resetForm(bienId) {
   editingId = bienId || null;
 
   document.getElementById('form-title').textContent =
-    bienId ? '✏️ Modifier le bien' : '✨ Ajouter un bien';
+    bienId ? 'Modifier le bien' : 'Ajouter un bien';
   document.getElementById('form-subtitle').textContent =
     bienId ? 'Modifiez les informations de ce bien.' : 'Renseignez les informations de votre bien.';
 
@@ -916,12 +1013,12 @@ function resetForm(bienId) {
     // PRÉ-REMPLISSAGE
     const b = getBiens().find(x => x.id === bienId);
     if (!b) {
-      showToast('⚠️ Bien introuvable.', 'error');
+      showToast('Bien introuvable.', 'error');
       showView('home');
       return;
     }
     document.getElementById('f-nom').value     = b.nom || '';
-    document.getElementById('f-type').value    = b.type || '';
+    setType(b.type || '');
     document.getElementById('f-desc').value    = b.description || '';
     document.getElementById('f-adresse').value = b.adresse || '';
     document.getElementById('f-lat').value     = b.lat != null ? b.lat : '';
@@ -939,10 +1036,11 @@ function resetForm(bienId) {
     renderChecklist(b.legalDocs);
   } else {
     // AJOUT — tout vider
-    ['f-nom','f-type','f-desc','f-adresse','f-lat','f-lng','f-dms'].forEach(id => {
+    ['f-nom','f-desc','f-adresse','f-lat','f-lng','f-dms'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+    setType('');
     formPhotos = [];
     formDocs   = [];
 
@@ -965,106 +1063,109 @@ function resetForm(bienId) {
 function renderDetail(id) {
   const b = getBiens().find(x => x.id === id);
   if (!b) {
-    showToast('⚠️ Bien introuvable.', 'error');
+    showToast('Bien introuvable.', 'error');
     showView('home');
     return;
   }
 
-  const t      = typeInfo(b.type);
-  const statut = getStatut(b);
-  const dateStr = new Date(b.createdAt).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: 'long', year: 'numeric'
-  });
+  const t       = typeInfo(b.type);
+  const statut  = getStatut(b);
+  const fmtDate = d => new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const photos  = b.photos || [];
+  const docs    = b.docs || [];
 
-  // Galerie photos
-  const galleryHtml = b.photos && b.photos.length
-    ? `<div class="gallery">${b.photos.map((p, i) =>
-        `<div class="gallery-item" onclick="openBienPhoto('${b.id}', ${i})">
-           <img src="${escAttr(photoSrc(p))}" alt="Photo ${i+1}" loading="lazy"/>
-         </div>`).join('')}</div>`
-    : `<p style="color:var(--muted);font-size:14px">Aucune photo.</p>`;
-
-  // Documents joints
-  const docsHtml = b.docs && b.docs.length
-    ? `<div class="detail-doc-list">${b.docs.map((d, i) =>
-        `<div class="doc-item">
-           <span class="doc-icon">${docIcon(d.name)}</span>
-           <span class="doc-name"><a href="#" onclick="downloadDoc('${b.id}', ${i}); return false;" style="color:inherit;text-decoration:none">${esc(d.name)}</a></span>
-           <span class="doc-size">${formatSize(d.size)}</span>
-         </div>`).join('')}</div>`
-    : `<p style="color:var(--muted);font-size:14px">Aucun fichier joint.</p>`;
+  // Galerie en mosaïque (5 photos max)
+  const galleryHtml = photos.length
+    ? `<div class="gallery count-${Math.min(photos.length, 5)}">${photos.slice(0, 5).map((p, i) =>
+        `<button type="button" class="gallery-item" onclick="openBienPhoto('${b.id}', ${i})" aria-label="Agrandir la photo ${i + 1}">
+           <img src="${escAttr(photoSrc(p))}" alt="" loading="lazy"/>
+         </button>`).join('')}</div>`
+    : `<div class="gallery-empty bien-placeholder" style="${typeStyle(b.type)}">${icon(t.icon)}<span>Pas encore de photo</span></div>`;
 
   // Documents légaux
-  const totalLegal   = LEGAL_DOCS_LIST.length;
-  const legalDocs    = b.legalDocs || [];
-  const presentCount = legalDocs.filter(d => d.present).length;
-  const pct          = Math.round(presentCount / totalLegal * 100);
-
+  const legalDocs = b.legalDocs || [];
   const legalHtml = LEGAL_DOCS_LIST.map(def => {
     const d = legalDocs.find(x => x.id === def.id) || { present: false };
-    const icon = d.present ? '✅' : '❌';
     const meta = [];
-    if (d.reference) meta.push('Réf : ' + esc(d.reference));
-    if (d.detenteur) meta.push('Détenteur : ' + esc(d.detenteur));
-    return `<div class="detail-legal-item">
-      <span class="detail-legal-icon">${icon}</span>
-      <div class="detail-legal-text">
-        <div class="detail-legal-label">${def.label}</div>
-        ${meta.length ? `<div class="detail-legal-meta">${meta.join(' · ')}</div>` : ''}
+    if (d.reference) meta.push('Réf. ' + esc(d.reference));
+    if (d.detenteur) meta.push('Détenu par ' + esc(d.detenteur));
+    return `<li class="legal-item${d.present ? '' : ' missing'}">
+      <span class="legal-mark ${d.present ? 'ok' : 'nok'}">${icon(d.present ? 'check' : 'x')}</span>
+      <div>
+        <div class="legal-label">${esc(def.label)}</div>
+        <div class="legal-meta">${d.present ? (meta.join(' · ') || 'Disponible') : 'Manquant'}</div>
       </div>
-    </div>`;
+    </li>`;
   }).join('');
+
+  // Fichiers joints
+  const docsHtml = docs.length
+    ? `<div class="file-list">${docs.map((d, i) =>
+        `<button type="button" class="file-item" onclick="downloadDoc('${b.id}', ${i})">
+           <span class="file-icon">${icon(docIcon(d.name))}</span>
+           <span class="file-name">${esc(d.name)}</span>
+           <span class="file-size">${formatSize(d.size)}</span>
+           ${icon('download')}
+         </button>`).join('')}</div>`
+    : `<p class="hint">Aucun fichier joint.</p>`;
+
+  const facts = [
+    ['calendar', 'Ajouté le', fmtDate(b.createdAt)],
+    b.updatedAt ? ['refresh-cw', 'Modifié le', fmtDate(b.updatedAt)] : null,
+    b.createdBy ? ['user', 'Ajouté par', esc(membreLabel(b.createdBy))] : null,
+    b.lat != null ? ['map-pin', 'Coordonnées GPS', `${b.lat.toFixed(5)}, ${b.lng.toFixed(5)}`] : null
+  ].filter(Boolean);
 
   const container = document.getElementById('detail-content');
   container.innerHTML = `
-    <div class="detail-header">
-      <div class="detail-header-left">
-        <button class="btn btn-ghost" onclick="showView('home')" style="margin-bottom:12px">← Retour</button>
-        <h1>${esc(b.nom)}</h1>
-        <span class="badge ${t.badgeClass}" style="margin-right:6px">${t.emoji} ${t.label}</span>
-        <span class="statut-badge ${statut.classe}">${statut.icone} ${statut.texte}</span>
+    <button class="back-link" onclick="showView('home')">${icon('arrow-left')}Retour aux biens</button>
+
+    <div class="detail-top">
+      <div>
+        <h1 class="detail-title">${esc(b.nom)}</h1>
+        <div class="detail-meta">
+          <span class="type-dot" style="${typeStyle(b.type)}">${icon(t.icon)}${esc(t.label)}</span>
+          ${b.adresse ? `<span>${icon('map-pin')}${esc(b.adresse)}</span>` : ''}
+          ${statutHtml(statut)}
+        </div>
       </div>
-      <div class="detail-header-right">
-        <button class="btn btn-pdf" id="btn-pdf-export" onclick="exportBienPDF('${b.id}')">📄 PDF</button>
-        <button class="btn btn-ghost" onclick="showView('form','${b.id}')">✏️ Modifier</button>
-        ${isAdmin() ? `<button class="btn btn-danger" onclick="deleteBien('${b.id}')">🗑️ Supprimer</button>` : ''}
+      <div class="detail-actions">
+        <button class="btn btn-secondary" onclick="showView('form','${b.id}')">${icon('pencil')}Modifier</button>
+        <button class="btn btn-secondary" id="btn-pdf-export" onclick="exportBienPDF('${b.id}')">${icon('file-down')}Fiche PDF</button>
+        ${isAdmin() ? `<button class="btn btn-danger" onclick="deleteBien('${b.id}')" aria-label="Supprimer le bien">${icon('trash-2')}</button>` : ''}
       </div>
     </div>
+
+    ${galleryHtml}
 
     <div class="detail-grid">
-      <div class="detail-card">
-        <div class="detail-card-title">📋 Informations</div>
-        <div class="detail-info-row"><span class="detail-info-label">Type</span><span class="detail-info-val">${t.emoji} ${t.label}</span></div>
-        ${b.adresse ? `<div class="detail-info-row"><span class="detail-info-label">Adresse</span><span class="detail-info-val">📍 ${esc(b.adresse)}</span></div>` : ''}
-        ${b.lat != null ? `<div class="detail-info-row"><span class="detail-info-label">GPS</span><span class="detail-info-val">${b.lat.toFixed(5)}, ${b.lng.toFixed(5)}</span></div>` : ''}
-        <div class="detail-info-row"><span class="detail-info-label">Ajouté le</span><span class="detail-info-val">${dateStr}</span></div>
-        ${b.createdBy ? `<div class="detail-info-row"><span class="detail-info-label">Ajouté par</span><span class="detail-info-val">${esc(membreLabel(b.createdBy))}</span></div>` : ''}
-        ${b.description ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:14px;line-height:1.7;color:var(--text2)">${esc(b.description)}</div>` : ''}
+      <div>
+        <section class="detail-section">
+          <h2>À propos de ce bien</h2>
+          ${b.description ? `<p class="detail-desc">${esc(b.description)}</p>` : '<p class="hint">Pas de description.</p>'}
+        </section>
+        <section class="detail-section">
+          <div class="facts">${facts.map(([ic, label, value]) =>
+            `<div class="fact">${icon(ic)}<div><div class="fact-label">${label}</div><div class="fact-value">${value}</div></div></div>`).join('')}
+          </div>
+        </section>
+        <section class="detail-section">
+          <h2>Où se trouve-t-il ?</h2>
+          ${b.lat != null ? '<div id="map-detail"></div>' : '<p class="hint">Position non renseignée.</p>'}
+        </section>
+        <section class="detail-section">
+          <h2>Fichiers joints</h2>
+          ${docsHtml}
+        </section>
       </div>
-      <div class="detail-card">
-        <div class="detail-card-title">📍 Localisation</div>
-        ${b.lat != null ? `<div id="map-detail"></div>` : `<p style="color:var(--muted);font-size:14px">Position non renseignée.</p>`}
-      </div>
-    </div>
 
-    <div class="detail-card" style="margin-top:16px">
-      <div class="detail-card-title">📋 Documents légaux
-        <span style="font-size:12px;font-weight:400;color:var(--muted);margin-left:8px">${presentCount}/${totalLegal} présents · ${pct}%</span>
-      </div>
-      <div style="background:var(--border);border-radius:20px;height:6px;overflow:hidden;margin-bottom:14px">
-        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent),var(--success));border-radius:20px;transition:width .4s"></div>
-      </div>
-      ${legalHtml}
-    </div>
-
-    <div class="detail-card" style="margin-top:16px">
-      <div class="detail-card-title">📸 Photos (${b.photos ? b.photos.length : 0})</div>
-      ${galleryHtml}
-    </div>
-
-    <div class="detail-card" style="margin-top:16px">
-      <div class="detail-card-title">📎 Fichiers joints (${b.docs ? b.docs.length : 0})</div>
-      ${docsHtml}
+      <aside class="side-card">
+        <h2>Dossier légal</h2>
+        <div class="side-score"><strong>${statut.presents}/${statut.total}</strong><span>documents disponibles</span></div>
+        <div class="progress"><div class="progress-bar${statut.complet ? ' full' : ''}" style="width:${statut.pct}%"></div></div>
+        <ul class="legal-list">${legalHtml}</ul>
+        ${statut.complet ? '' : `<button class="btn btn-secondary btn-block" onclick="showView('form','${b.id}')">${icon('clipboard-check')}Compléter le dossier</button>`}
+      </aside>
     </div>
   `;
 
@@ -1072,13 +1173,15 @@ function renderDetail(id) {
   if (b.lat != null) {
     setTimeout(() => {
       // Important : détruire la carte précédente sinon Leaflet plante
-      if (mapDetail) { mapDetail.remove(); mapDetail = null; }
-      mapDetail = L.map('map-detail').setView([b.lat, b.lng], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 19
-      }).addTo(mapDetail);
-      L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b.type) }).addTo(mapDetail)
-        .bindPopup(`<strong>${esc(b.nom)}</strong>`).openPopup();
+      if (mapDetail) {
+        const i = baseLayers.findIndex(l => l._map === mapDetail);
+        if (i !== -1) baseLayers.splice(i, 1);
+        mapDetail.remove();
+        mapDetail = null;
+      }
+      mapDetail = L.map('map-detail', { scrollWheelZoom: false }).setView([b.lat, b.lng], 15);
+      addBaseLayer(mapDetail);
+      L.marker([b.lat, b.lng], { icon: makeMarkerIcon(b) }).addTo(mapDetail);
       setTimeout(() => mapDetail.invalidateSize(), 100);
     }, 150);
   }
@@ -1088,19 +1191,19 @@ function renderDetail(id) {
    🗑️ SUPPRESSION
 ============================================================ */
 async function deleteBien(id) {
-  if (!isAdmin()) return showToast('⚠️ Seul l\'administrateur peut supprimer un bien.', 'error');
+  if (!isAdmin()) return showToast('Seul l\'administrateur peut supprimer un bien.', 'error');
   const b = getBiens().find(x => x.id === id);
-  if (!b) return showToast('⚠️ Bien introuvable.', 'error');
+  if (!b) return showToast('Bien introuvable.', 'error');
   if (!confirm('Supprimer ce bien définitivement ? Cette action est irréversible.')) return;
 
   showLoader();
   const { data, error } = await sb.from('biens').delete().eq('id', id).select('id');
   hideLoader();
   if (error || !data || !data.length) {
-    return showToast('⚠️ Suppression impossible : ' + (error ? error.message : 'accès refusé'), 'error');
+    return showToast('Suppression impossible : ' + (error ? error.message : 'accès refusé'), 'error');
   }
   await removeStoragePaths([...b.photos, ...b.docs].map(f => f.path));
-  showToast('🗑️ Bien supprimé.', 'success');
+  showToast('Bien supprimé.', 'success');
   showView('home');
 }
 
@@ -1117,9 +1220,9 @@ async function downloadDoc(bienId, i) {
   const b = getBiens().find(x => x.id === bienId);
   const d = b && b.docs[i];
   if (!d) return;
-  if (!d.path) return showToast('⚠️ Fichier indisponible.', 'error');
+  if (!d.path) return showToast('Fichier indisponible.', 'error');
   const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(d.path, 60, { download: d.name });
-  if (error) return showToast('⚠️ Téléchargement impossible : ' + error.message, 'error');
+  if (error) return showToast('Téléchargement impossible : ' + error.message, 'error');
   window.location.assign(data.signedUrl);
 }
 
@@ -1151,13 +1254,18 @@ function showToast(msg, type = '') {
   if (!container) return;
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.textContent = msg;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  const ic = { success: 'circle-check', error: 'triangle-alert' }[type] || 'info';
+  toast.innerHTML = icon(ic);
+  const text = document.createElement('span');
+  text.textContent = msg;
+  toast.appendChild(text);
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.transition = 'opacity .3s ease';
     toast.style.opacity = '0';
     setTimeout(() => toast.remove(), 300);
-  }, 3500);
+  }, 3800);
 }
 
 /* ============================================================
@@ -1165,10 +1273,9 @@ function showToast(msg, type = '') {
 ============================================================ */
 function docIcon(name) {
   const ext = String(name).split('.').pop().toLowerCase();
-  if (ext === 'pdf') return '📄';
-  if (['jpg','jpeg','png','webp','gif'].includes(ext)) return '🖼️';
-  if (['doc','docx'].includes(ext)) return '📝';
-  return '📎';
+  if (['jpg','jpeg','png','webp','gif'].includes(ext)) return 'image';
+  if (['pdf','doc','docx'].includes(ext)) return 'file-text';
+  return 'paperclip';
 }
 
 function formatSize(bytes) {
@@ -1183,7 +1290,7 @@ function formatSize(bytes) {
 ============================================================ */
 async function exportJSON() {
   const biens = getBiens();
-  if (!biens.length) return showToast('⚠️ Aucun bien à exporter.', 'error');
+  if (!biens.length) return showToast('Aucun bien à exporter.', 'error');
 
   showLoader();
   try {
@@ -1212,9 +1319,9 @@ async function exportJSON() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast(`✅ ${biens.length} bien(s) exporté(s) !`, 'success');
+    showToast(`${biens.length} bien(s) exporté(s) !`, 'success');
   } catch (e) {
-    showToast('⚠️ Erreur d\'export : ' + e.message, 'error');
+    showToast('Erreur d\'export : ' + e.message, 'error');
   } finally {
     hideLoader();
   }
@@ -1306,16 +1413,16 @@ function importJSON(input) {
     try {
       data = JSON.parse(e.target.result);
     } catch (err) {
-      return showToast('⚠️ Erreur de lecture : ' + err.message, 'error');
+      return showToast('Erreur de lecture : ' + err.message, 'error');
     }
     if (!data.biens || !Array.isArray(data.biens)) {
-      return showToast('⚠️ Fichier invalide.', 'error');
+      return showToast('Fichier invalide.', 'error');
     }
 
     showLoader();
     const n = await importBiensList(data.biens);
     hideLoader();
-    showToast(`✅ ${n} bien(s) importé(s) sur ${data.biens.length}.`, n ? 'success' : '');
+    showToast(`${n} bien(s) importé(s) sur ${data.biens.length}.`, n ? 'success' : '');
     showView('home');
   };
   reader.readAsText(file);
@@ -1343,7 +1450,7 @@ async function proposeMigration() {
   hideLoader();
   // On garde les données locales comme sauvegarde, mais on ne repose plus la question
   try { localStorage.setItem(MIGRATION_KEY, new Date().toISOString()); } catch (e) { /* ignore */ }
-  showToast(`✅ ${n} bien(s) transféré(s) dans l'espace familial.`, 'success');
+  showToast(`${n} bien(s) transféré(s) dans l'espace familial.`, 'success');
   showView('home');
 }
 
@@ -1352,14 +1459,14 @@ async function proposeMigration() {
 ============================================================ */
 async function exportBienPDF(id) {
   const b = getBiens().find(x => x.id === id);
-  if (!b) return showToast('⚠️ Bien introuvable.', 'error');
+  if (!b) return showToast('Bien introuvable.', 'error');
 
   if (typeof window.jspdf === 'undefined') {
-    return showToast('⚠️ jsPDF non chargé. Vérifiez votre connexion internet.', 'error');
+    return showToast('jsPDF non chargé. Vérifiez votre connexion internet.', 'error');
   }
 
   const btn = document.getElementById('btn-pdf-export');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Génération…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = icon('file-down') + 'Génération…'; }
 
   try {
     const { jsPDF } = window.jspdf;
@@ -1369,7 +1476,7 @@ async function exportBienPDF(id) {
     const MARGIN  = 18;
     const CONTENT = PAGE_W - MARGIN * 2;
     let y = MARGIN;
-    const ACCENT = [201, 169, 110];
+    const ACCENT = [180, 83, 47];   // terracotta de l'application
 
     const checkNewPage = (needed = 10) => {
       if (y + needed > 280) { doc.addPage(); y = MARGIN; }
@@ -1542,13 +1649,13 @@ async function exportBienPDF(id) {
 
     const fileName = `immofamille_${b.nom.replace(/[^a-zA-Z0-9]/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`;
     doc.save(fileName);
-    showToast('✅ PDF exporté !', 'success');
+    showToast('PDF exporté !', 'success');
 
   } catch(err) {
     console.error('Erreur PDF:', err);
-    showToast('⚠️ Erreur PDF : ' + err.message, 'error');
+    showToast('Erreur PDF : ' + err.message, 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '📄 PDF'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = icon('file-down') + 'Fiche PDF'; }
   }
 }
 
@@ -1614,9 +1721,9 @@ function goToLogin(email) {
 
 async function sendLoginLink() {
   const email = document.getElementById('login-email').value.trim().toLowerCase();
-  if (!EMAIL_RE.test(email)) return setAuthMessage('⚠️ Adresse e-mail invalide.', 'error');
+  if (!EMAIL_RE.test(email)) return setAuthMessage('Adresse e-mail invalide.', 'error');
 
-  setBusy('btn-login', true, '⏳ Vérification…');
+  setBusy('btn-login', true, 'Vérification…');
   try {
     const { data: statut, error } = await sb.rpc('statut_email', { p_email: email });
     if (error) throw error;
@@ -1627,15 +1734,15 @@ async function sendLoginLink() {
         '<button type="button" class="link-btn" onclick="setAuthTab(\'demande\')">Faire une demande d\'accès</button>', 'error');
     }
     if (statut === 'en_attente') {
-      return setAuthMessage('⏳ Votre demande est <strong>en attente</strong> : l\'administrateur doit encore la valider.');
+      return setAuthMessage('Votre demande est <strong>en attente</strong> : l\'administrateur doit encore la valider.');
     }
     if (statut === 'refuse') {
-      return setAuthMessage('🚫 Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
+      return setAuthMessage('Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
     }
 
     await requestEmailCode(email);
   } catch (e) {
-    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
   } finally {
     setBusy('btn-login', false);
   }
@@ -1653,7 +1760,7 @@ async function requestEmailCode(email) {
   document.getElementById('otp-email').textContent = email;
   document.getElementById('otp-code').value = '';
   setAuthTab('otp');
-  setAuthMessage('📬 E-mail envoyé. Pensez à regarder dans les spams.', 'success');
+  setAuthMessage('E-mail envoyé. Pensez à regarder dans les spams.', 'success');
   setTimeout(() => document.getElementById('otp-code').focus(), 50);
 }
 
@@ -1662,24 +1769,24 @@ async function resendCode() {
   try {
     await requestEmailCode(otpEmail);
   } catch (e) {
-    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
   }
 }
 
 /** Étape 1 : vérifie le code reçu par e-mail, dans ce même onglet. */
 async function verifyEmailCode() {
   const token = document.getElementById('otp-code').value.replace(/\s/g, '');
-  if (!/^\d{6,10}$/.test(token)) return setAuthMessage('⚠️ Saisissez le code à chiffres reçu par e-mail.', 'error');
+  if (!/^\d{6,10}$/.test(token)) return setAuthMessage('Saisissez le code à chiffres reçu par e-mail.', 'error');
 
-  setBusy('btn-otp', true, '⏳ Vérification…');
+  setBusy('btn-otp', true, 'Vérification…');
   try {
     const { data, error } = await sb.auth.verifyOtp({ email: otpEmail, token, type: 'email' });
     if (error) {
       const expired = /expired|invalid/i.test(error.message || '');
-      return setAuthMessage('⚠️ ' + (expired ? 'Code incorrect ou expiré. Vérifiez-le ou demandez-en un nouveau.' : esc(authErrorMessage(error))), 'error');
+      return setAuthMessage('' + (expired ? 'Code incorrect ou expiré. Vérifiez-le ou demandez-en un nouveau.' : esc(authErrorMessage(error))), 'error');
     }
     session = data.session;
-    showToast('✅ Adresse e-mail vérifiée', 'success');
+    showToast('Adresse e-mail vérifiée', 'success');
     await checkMembership();
   } finally {
     setBusy('btn-otp', false);
@@ -1691,30 +1798,30 @@ async function sendDemande() {
   const nom    = sanitizeInput(document.getElementById('dem-nom').value).slice(0, 80);
   const email  = document.getElementById('dem-email').value.trim().toLowerCase();
 
-  if (!prenom || !nom)       return setAuthMessage('⚠️ Nom et prénom obligatoires.', 'error');
-  if (!EMAIL_RE.test(email)) return setAuthMessage('⚠️ Adresse e-mail invalide.', 'error');
+  if (!prenom || !nom)       return setAuthMessage('Nom et prénom obligatoires.', 'error');
+  if (!EMAIL_RE.test(email)) return setAuthMessage('Adresse e-mail invalide.', 'error');
 
-  setBusy('btn-demande', true, '⏳ Envoi…');
+  setBusy('btn-demande', true, 'Envoi…');
   try {
     const { data: res, error } = await sb.rpc('demander_acces', { p_nom: nom, p_prenom: prenom, p_email: email });
     if (error) throw error;
 
     const loginBtn = `<button type="button" class="link-btn" onclick="goToLogin('${escAttr(email)}')">Se connecter</button>`;
     const messages = {
-      envoyee:          [`✅ Merci ${esc(prenom)}, votre demande est envoyée !<br>Dès que l'administrateur l'aura acceptée, revenez ici et cliquez sur « Se connecter » avec <strong>${esc(email)}</strong>.`, 'success'],
-      en_attente:       ['⏳ Une demande existe déjà pour cette adresse. Elle attend la validation de l\'administrateur.', ''],
-      approuve:         [`✅ Cette adresse est déjà acceptée. ${loginBtn}`, 'success'],
-      refuse:           ['🚫 Une demande pour cette adresse a été refusée. Contactez l\'administrateur de la famille.', 'error'],
-      complet:          [`👨‍👩‍👧 La famille est complète (${MAX_MEMBRES} membres maximum). Contactez l'administrateur.`, 'error'],
-      trop_de_demandes: ['⚠️ Trop de demandes sont en attente. Réessayez plus tard.', 'error']
+      envoyee:          [`Merci ${esc(prenom)}, votre demande est envoyée !<br>Dès que l'administrateur l'aura acceptée, revenez ici et cliquez sur « Se connecter » avec <strong>${esc(email)}</strong>.`, 'success'],
+      en_attente:       ['Une demande existe déjà pour cette adresse. Elle attend la validation de l\'administrateur.', ''],
+      approuve:         [`Cette adresse est déjà acceptée. ${loginBtn}`, 'success'],
+      refuse:           ['Une demande pour cette adresse a été refusée. Contactez l\'administrateur de la famille.', 'error'],
+      complet:          [`La famille est complète (${MAX_MEMBRES} membres maximum). Contactez l'administrateur.`, 'error'],
+      trop_de_demandes: ['Trop de demandes sont en attente. Réessayez plus tard.', 'error']
     };
-    const [html, type] = messages[res] || ['⚠️ Réponse inattendue du serveur.', 'error'];
+    const [html, type] = messages[res] || ['Réponse inattendue du serveur.', 'error'];
     setAuthMessage(html, type);
     if (res === 'envoyee') {
       ['dem-prenom', 'dem-nom', 'dem-email'].forEach(id => { document.getElementById(id).value = ''; });
     }
   } catch (e) {
-    setAuthMessage('⚠️ ' + esc(authErrorMessage(e)), 'error');
+    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
   } finally {
     setBusy('btn-demande', false);
   }
@@ -1728,6 +1835,8 @@ async function logout() {
 
 function resetSessionState() {
   otpEmail      = '';
+  setAuthTab('login');
+  document.getElementById('login-email').value = '';
   currentMember = null;
   biensCache    = [];
   membresCache  = [];
@@ -1735,8 +1844,8 @@ function resetSessionState() {
 }
 
 /* Écran générique (attente de validation, configuration manquante…) */
-function showMessage(icon, title, html, actions) {
-  document.getElementById('message-icon').textContent  = icon;
+function showMessage(iconName, title, html, actions) {
+  document.getElementById('message-icon').innerHTML    = icon(iconName);
   document.getElementById('message-title').textContent = title;
   document.getElementById('message-text').innerHTML    = html;
   document.getElementById('message-actions').innerHTML = actions || '';
@@ -1757,42 +1866,42 @@ async function doCheckMembership() {
 
   const { data: etat, error } = await sb.rpc('mon_etat');
   if (error) {
-    return showMessage('⚠️', 'Connexion impossible', esc(error.message),
-      `<button class="btn btn-primary" onclick="checkMembership()">🔄 Réessayer</button>
+    return showMessage('triangle-alert', 'Connexion impossible', esc(error.message),
+      `<button class="btn btn-primary" onclick="checkMembership()">Réessayer</button>
        <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`);
   }
   currentMember = etat.statut === 'inconnu' ? null : etat;
 
   if (hasAccess()) return enterApp();
 
-  const actions = `<button class="btn btn-primary" onclick="checkMembership()">🔄 Vérifier à nouveau</button>
+  const actions = `<button class="btn btn-primary" onclick="checkMembership()">Vérifier à nouveau</button>
                    <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`;
   if (!currentMember) {
-    return showMessage('🤔', 'Aucune demande trouvée',
+    return showMessage('search', 'Aucune demande trouvée',
       `Aucune demande d'accès n'existe pour <strong>${esc(email)}</strong>.<br>Déconnectez-vous puis utilisez « Demander l'accès ».`, actions);
   }
   if (etat.statut === 'refuse') {
-    return showMessage('🚫', 'Demande refusée',
+    return showMessage('user-x', 'Demande refusée',
       'Votre demande d\'accès a été refusée. Contactez l\'administrateur de la famille.', actions);
   }
   if (etat.statut !== 'approuve') {
-    return showMessage('⏳', 'Demande en attente',
+    return showMessage('hourglass', 'Demande en attente',
       `Bonjour ${esc(etat.prenom)} ! Votre demande est bien reçue.<br>L'administrateur doit la valider avant que vous puissiez accéder aux biens.`, actions);
   }
 
   // Membre accepté : 2e étape (code secret)
   if (etat.bloque) {
-    return showMessage('🔒', 'Compte bloqué',
+    return showMessage('lock', 'Compte bloqué',
       'Trop d\'essais avec un mauvais code.<br>Demandez à l\'administrateur de vous donner un <strong>nouveau code d\'activation</strong>.', actions);
   }
   if (etat.pin_defini)  return showVerify('pin');
   if (etat.activation)  return showVerify('activation');
   if (etat.role === 'admin') return showVerify('creation');
   if (etat.activation_expiree) {
-    return showMessage('⌛', 'Code d\'activation expiré',
+    return showMessage('clock', 'Code d\'activation expiré',
       'Votre code d\'activation n\'est plus valable (7 jours).<br>Demandez-en un nouveau à l\'administrateur.', actions);
   }
-  return showMessage('🔑', 'Presque terminé !',
+  return showMessage('key-round', 'Presque terminé !',
     `Bonjour ${esc(etat.prenom)}, votre demande est acceptée.<br>` +
     'Pour finir, il vous faut le <strong>code d\'activation</strong> que l\'administrateur vous donnera par téléphone ou WhatsApp.', actions);
 }
@@ -1809,16 +1918,16 @@ function showVerify(mode) {
   verifyMode = mode;
   const first = mode !== 'pin';
   const texts = {
-    pin:        ['🔒 Votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Saisissez votre code secret à 6 chiffres.`],
-    activation: ['🔑 Activez votre compte', `Bienvenue ${esc(currentMember.prenom)} ! Saisissez le code d'activation que l'administrateur vous a donné, puis choisissez votre code secret. Il vous sera demandé à chaque nouvelle connexion.`],
-    creation:   ['🔑 Choisissez votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Choisissez un code secret à 6 chiffres. Il vous sera demandé à chaque nouvelle connexion, en plus de l'e-mail.`]
+    pin:        ['Votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Saisissez votre code secret à 6 chiffres.`],
+    activation: ['Activez votre compte', `Bienvenue ${esc(currentMember.prenom)} ! Saisissez le code d'activation que l'administrateur vous a donné, puis choisissez votre code secret. Il vous sera demandé à chaque nouvelle connexion.`],
+    creation:   ['Choisissez votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Choisissez un code secret à 6 chiffres. Il vous sera demandé à chaque nouvelle connexion, en plus de l'e-mail.`]
   };
   document.getElementById('verify-title').textContent = texts[mode][0];
   document.getElementById('verify-text').innerHTML    = texts[mode][1];
   document.getElementById('grp-activation').style.display = mode === 'activation' ? '' : 'none';
   document.getElementById('grp-pin2').style.display       = first ? '' : 'none';
   document.getElementById('lbl-pin').textContent = first ? 'Choisissez votre code secret (6 chiffres)' : 'Code secret';
-  document.getElementById('btn-verify').textContent = first ? '✅ Activer mon compte' : '🔓 Accéder';
+  document.getElementById('btn-verify').textContent = first ? 'Activer mon compte' : 'Accéder';
   ['v-activation', 'v-pin', 'v-pin2'].forEach(id => { document.getElementById(id).value = ''; });
   setVerifyMessage('');
   showView('verify');
@@ -1841,29 +1950,29 @@ async function submitVerify() {
   const pin2       = document.getElementById('v-pin2').value.trim();
 
   if (verifyMode === 'activation' && !/^\d{6}$/.test(activation)) {
-    return setVerifyMessage('⚠️ Le code d\'activation contient 6 chiffres.', 'error');
+    return setVerifyMessage('Le code d\'activation contient 6 chiffres.', 'error');
   }
-  if (!/^\d{6}$/.test(pin)) return setVerifyMessage('⚠️ Le code secret contient exactement 6 chiffres.', 'error');
+  if (!/^\d{6}$/.test(pin)) return setVerifyMessage('Le code secret contient exactement 6 chiffres.', 'error');
   if (verifyMode !== 'pin') {
-    if (isWeakPin(pin)) return setVerifyMessage('⚠️ Ce code est trop simple, choisissez-en un autre.', 'error');
-    if (pin !== pin2)   return setVerifyMessage('⚠️ Les deux codes secrets ne correspondent pas.', 'error');
+    if (isWeakPin(pin)) return setVerifyMessage('Ce code est trop simple, choisissez-en un autre.', 'error');
+    if (pin !== pin2)   return setVerifyMessage('Les deux codes secrets ne correspondent pas.', 'error');
   }
 
-  setBusy('btn-verify', true, '⏳ Vérification…');
+  setBusy('btn-verify', true, 'Vérification…');
   try {
     const { data: res, error } = verifyMode === 'pin'
       ? await sb.rpc('verifier_code_secret', { p_pin: pin })
       : await sb.rpc('activer_code_secret', { p_activation: verifyMode === 'activation' ? activation : null, p_pin: pin });
-    if (error) return setVerifyMessage('⚠️ ' + esc(error.message), 'error');
+    if (error) return setVerifyMessage('' + esc(error.message), 'error');
 
     if (res === 'ok') {
-      showToast(verifyMode === 'pin' ? '🔓 Identité vérifiée' : '✅ Compte activé ! Retenez bien votre code secret.', 'success');
+      showToast(verifyMode === 'pin' ? 'Identité vérifiée' : 'Compte activé ! Retenez bien votre code secret.', 'success');
       return checkMembership();
     }
     if (res && res.startsWith('incorrect:')) {
       const left = res.split(':')[1];
       document.getElementById(verifyMode === 'activation' ? 'v-activation' : 'v-pin').value = '';
-      return setVerifyMessage(`⚠️ Code incorrect. Encore <strong>${esc(left)}</strong> essai(s) avant blocage du compte.`, 'error');
+      return setVerifyMessage(`Code incorrect. Encore <strong>${esc(left)}</strong> essai(s) avant blocage du compte.`, 'error');
     }
     // bloque / expire / pas_de_code / deja_defini → l'état a changé, on relit
     return checkMembership();
@@ -1873,11 +1982,35 @@ async function submitVerify() {
 }
 
 function enterApp() {
+  const m = currentMember;
   document.body.classList.toggle('is-admin', isAdmin());
-  document.getElementById('user-chip').textContent = `👤 ${currentMember.prenom}`;
+  document.getElementById('user-avatar').textContent =
+    (String(m.prenom || '?').charAt(0) + String(m.nom || '').charAt(0)).toUpperCase();
+  document.getElementById('user-chip').textContent  = `${m.prenom} ${m.nom}`;
+  document.getElementById('user-email').textContent = m.email || '';
   showView('home');
   if (isAdmin()) setTimeout(proposeMigration, 800);
 }
+
+/* Menu du compte (avatar en haut à droite) */
+function toggleUserMenu(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById('user-menu');
+  const open = !menu.classList.contains('open');
+  menu.classList.toggle('open', open);
+  document.getElementById('user-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeUserMenu() {
+  const menu = document.getElementById('user-menu');
+  if (!menu) return;
+  menu.classList.remove('open');
+  document.getElementById('user-btn').setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.user-menu')) closeUserMenu();
+});
 
 /* ============================================================
    👑 ADMINISTRATION DES MEMBRES
@@ -1890,7 +2023,7 @@ async function loadMembres() {
     sb.from('membres').select('*').order('created_at'),
     sb.rpc('etat_securite_membres')
   ]);
-  if (res.error) return showToast('⚠️ Impossible de charger les membres : ' + res.error.message, 'error');
+  if (res.error) return showToast('Impossible de charger les membres : ' + res.error.message, 'error');
   membresCache = res.data;
   securite = {};
   (secu.data || []).forEach(x => { securite[x.membre_id] = x; });
@@ -1900,30 +2033,35 @@ async function loadMembres() {
 function secuBadge(m) {
   if (m.statut !== 'approuve') return '';
   const x = securite[m.id] || {};
-  if (x.bloque)            return '<span class="secu-badge secu-bloque">🚫 Bloqué</span>';
-  if (x.pin_defini)        return '<span class="secu-badge secu-ok">🔒 Code secret actif</span>';
-  if (x.activation_valide) return '<span class="secu-badge secu-attente">🔑 Activation en attente</span>';
-  return '<span class="secu-badge secu-aucun">⚠️ Sans code</span>';
+  if (x.bloque)            return `<span class="tag tag-danger">${icon('lock')}Bloqué</span>`;
+  if (x.pin_defini)        return `<span class="tag tag-ok">${icon('shield-check')}Code secret actif</span>`;
+  if (x.activation_valide) return `<span class="tag tag-warn">${icon('key-round')}Activation en attente</span>`;
+  return `<span class="tag tag-danger">${icon('triangle-alert')}Sans code</span>`;
 }
 
 function updateAdminBadge() {
   const n = membresCache.filter(m => m.statut === 'en_attente').length;
   const badge = document.getElementById('admin-badge');
-  if (!badge) return;
-  badge.textContent = n;
-  badge.classList.toggle('visible', n > 0);
+  if (badge) {
+    badge.textContent = n;
+    badge.classList.toggle('visible', n > 0);
+  }
+  const dot = document.getElementById('avatar-dot');
+  if (dot) dot.classList.toggle('visible', n > 0);
+  const menuCount = document.getElementById('menu-admin-count');
+  if (menuCount) menuCount.textContent = n ? `${n} en attente` : '';
 }
 
 function membreItem(m, actions) {
   const initiales = (String(m.prenom || '?').charAt(0) + String(m.nom || '').charAt(0)).toUpperCase();
-  const date = new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `<div class="membre-item">
-    <div class="membre-avatar">${esc(initiales)}</div>
-    <div class="membre-info">
-      <div class="membre-nom">${esc(m.prenom)} ${esc(m.nom)}${m.role === 'admin' ? '<span class="role-badge">👑 Admin</span>' : ''}${secuBadge(m)}</div>
-      <div class="membre-meta">${esc(m.email)} · demande du ${date}</div>
+  const date = new Date(m.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `<div class="member-item${m.role === 'admin' ? ' is-admin' : ''}">
+    <div class="member-avatar">${esc(initiales)}</div>
+    <div class="member-info">
+      <div class="member-name">${esc(m.prenom)} ${esc(m.nom)}${m.role === 'admin' ? `<span class="tag tag-neutral">${icon('crown')}Admin</span>` : ''}${secuBadge(m)}</div>
+      <div class="member-meta">${esc(m.email)} · demande du ${date}</div>
     </div>
-    ${actions ? `<div class="membre-actions">${actions}</div>` : ''}
+    ${actions ? `<div class="member-actions">${actions}</div>` : ''}
   </div>`;
 }
 
@@ -1936,30 +2074,31 @@ function renderAdmin() {
 
   const pct = Math.round(membres.length / MAX_MEMBRES * 100);
   document.getElementById('quota-bar').style.width = pct + '%';
+  document.getElementById('quota-bar').classList.toggle('full', complet);
   document.getElementById('quota-text').textContent =
     `${membres.length} membre${membres.length > 1 ? 's' : ''} sur ${MAX_MEMBRES}` +
-    (complet ? ' · famille complète' : ` · ${MAX_MEMBRES - membres.length} place(s) libre(s)`);
+    (complet ? ' · famille complète' : ` · ${MAX_MEMBRES - membres.length} place${MAX_MEMBRES - membres.length > 1 ? 's libres' : ' libre'}`);
   document.getElementById('quota-pct').textContent = pct + '%';
   document.getElementById('share-link').value = appUrl();
   document.getElementById('admin-pending-count').textContent = pending.length;
 
   document.getElementById('admin-pending').innerHTML = pending.length
     ? pending.map(m => membreItem(m,
-        `<button class="btn btn-success" ${complet ? 'disabled title="Famille complète : retirez d\'abord un membre"' : ''} onclick="decideMembre('${m.id}', 'approuve')">✅ Accepter</button>
-         <button class="btn btn-ghost" onclick="decideMembre('${m.id}', 'refuse')">❌ Refuser</button>`)).join('')
-    : '<p class="membre-empty">Aucune demande en attente.</p>';
+        `<button class="btn btn-sm btn-success" ${complet ? 'disabled title="Famille complète : retirez d\'abord un membre"' : ''} onclick="decideMembre('${m.id}', 'approuve')">${icon('check')}Accepter</button>
+         <button class="btn btn-sm btn-secondary" onclick="decideMembre('${m.id}', 'refuse')">Refuser</button>`)).join('')
+    : '<p class="member-empty">Aucune demande en attente.</p>';
 
   document.getElementById('admin-membres').innerHTML = membres.length
     ? membres.map(m => membreItem(m, m.role === 'admin' ? '' :
-        `<button class="btn btn-ghost" title="Nouveau code d'activation (débloque / remplace un code oublié)" onclick="newActivationCode('${m.id}')">🔑 Code</button>
-         <button class="btn btn-ghost" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">✉️ Prévenir</button>
-         <button class="btn btn-ghost" onclick="removeMembre('${m.id}')">Retirer</button>`)).join('')
-    : '<p class="membre-empty">Aucun membre.</p>';
+        `<button class="btn btn-sm btn-secondary" title="Nouveau code d'activation (débloque ou remplace un code oublié)" onclick="newActivationCode('${m.id}')">${icon('key-round')}Code</button>
+         <button class="btn btn-sm btn-secondary" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">${icon('mail')}Prévenir</button>
+         <button class="btn btn-sm btn-ghost" onclick="removeMembre('${m.id}')">Retirer</button>`)).join('')
+    : '<p class="member-empty">Aucun membre.</p>';
 
   document.getElementById('admin-refuses-card').style.display = refuses.length ? '' : 'none';
   document.getElementById('admin-refuses').innerHTML = refuses.map(m => membreItem(m,
-    `<button class="btn btn-ghost" ${complet ? 'disabled' : ''} onclick="decideMembre('${m.id}', 'approuve')">✅ Accepter</button>
-     <button class="btn btn-ghost" onclick="removeMembre('${m.id}')">🗑️ Effacer</button>`)).join('');
+    `<button class="btn btn-sm btn-secondary" ${complet ? 'disabled' : ''} onclick="decideMembre('${m.id}', 'approuve')">Accepter</button>
+     <button class="btn btn-sm btn-ghost" onclick="removeMembre('${m.id}')">${icon('trash-2')}Effacer</button>`)).join('');
 
   updateAdminBadge();
 }
@@ -1971,13 +2110,13 @@ async function decideMembre(id, statut) {
 
   const { data, error } = await sb.from('membres').update({ statut }).eq('id', id).select();
   if (error || !data || !data.length) {
-    return showToast('⚠️ ' + (error ? error.message : 'Action refusée.'), 'error');
+    return showToast('' + (error ? error.message : 'Action refusée.'), 'error');
   }
   await loadMembres();
   renderAdmin();
 
   if (statut === 'approuve') {
-    showToast(`✅ ${m.prenom} fait maintenant partie de la famille !`, 'success');
+    showToast(`${m.prenom} fait maintenant partie de la famille !`, 'success');
     await newActivationCode(id, true);
   } else {
     showToast(`Demande de ${m.prenom} refusée.`, 'success');
@@ -1994,7 +2133,7 @@ async function removeMembre(id) {
 
   const { data, error } = await sb.from('membres').delete().eq('id', id).select('id');
   if (error || !data || !data.length) {
-    return showToast('⚠️ ' + (error ? error.message : 'Action refusée.'), 'error');
+    return showToast('' + (error ? error.message : 'Action refusée.'), 'error');
   }
   showToast(`${m.prenom} a été retiré(e).`, 'success');
   await loadMembres();
@@ -2029,7 +2168,7 @@ async function newActivationCode(id, afterApproval = false) {
       !confirm(`Générer un nouveau code pour ${m.prenom} ?\n\nSon code actuel ne marchera plus et il/elle devra se réactiver.`)) return;
 
   const { data: code, error } = await sb.rpc('generer_code_activation', { p_membre: id });
-  if (error) return showToast('⚠️ ' + error.message, 'error');
+  if (error) return showToast('' + error.message, 'error');
   await loadMembres();
   renderAdmin();
   showCodeModal(m, code, afterApproval);
@@ -2057,13 +2196,13 @@ function closeCodeModal() {
 
 function copyActivationCode() {
   if (!modalCode) return;
-  const done = () => showToast('📋 Code copié !', 'success');
+  const done = () => showToast('Code copié !', 'success');
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(modalCode).then(done, () => {});
 }
 
 function copyShareLink() {
   const url = appUrl();
-  const done = () => showToast('📋 Lien copié !', 'success');
+  const done = () => showToast('Lien copié !', 'success');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(done, () => {
       document.getElementById('share-link').select();
@@ -2081,12 +2220,12 @@ function copyShareLink() {
 ============================================================ */
 async function initApp() {
   if (!window.supabase || !window.supabase.createClient) {
-    return showMessage('📡', 'Connexion impossible',
+    return showMessage('wifi-off', 'Connexion impossible',
       'La bibliothèque Supabase n\'a pas pu être chargée. Vérifiez votre connexion internet puis rechargez la page.',
-      '<button class="btn btn-primary" onclick="location.reload()">🔄 Recharger</button>');
+      '<button class="btn btn-primary" onclick="location.reload()">Recharger</button>');
   }
   if (!configOk()) {
-    return showMessage('⚙️', 'Configuration requise',
+    return showMessage('settings', 'Configuration requise',
       'Renseignez l\'adresse et la clé de votre projet Supabase dans le fichier <code>config.js</code>, ' +
       'puis exécutez <code>supabase/schema.sql</code>. Tout est expliqué dans le <code>README.md</code>.');
   }
@@ -2112,7 +2251,7 @@ async function initApp() {
     } else if (event === 'SIGNED_IN' && newSession && newSession.user.email !== prevEmail) {
       // Ne pas appeler Supabase directement dans ce callback
       setTimeout(() => {
-        showToast('✅ Adresse e-mail vérifiée', 'success');
+        showToast('Adresse e-mail vérifiée', 'success');
         checkMembership();
       }, 0);
     }
@@ -2127,7 +2266,7 @@ async function initApp() {
     const known = session && session.user ? session.user.email : null;
     if (email && email !== known) {
       session = d.session;
-      showToast('✅ Adresse e-mail vérifiée', 'success');
+      showToast('Adresse e-mail vérifiée', 'success');
       checkMembership();
     } else if (!email && known) {
       session = null;
@@ -2145,12 +2284,14 @@ async function initApp() {
   } else {
     showView('auth');
     if (linkError) {
-      setAuthMessage('⚠️ Ce lien de connexion n\'est plus valide (expiré ou déjà utilisé). Demandez-en un nouveau.', 'error');
+      setAuthMessage('Ce lien de connexion n\'est plus valide (expiré ou déjà utilisé). Demandez-en un nouveau.', 'error');
     }
   }
 }
 
 window.addEventListener('load', () => {
+  hydrateIcons();
   initTheme();
+  setMobileMap(false);
   initApp();
 });

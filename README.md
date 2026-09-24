@@ -97,6 +97,7 @@ where membre_id = (select id from public.membres where role = 'admin');
 | `index.html` | structure des pages |
 | `style.css` | apparence (thèmes clair et sombre, mobile) |
 | `app.js` | logique de l'application |
+| `icons.js` | icônes de l'interface ([Lucide](https://lucide.dev), licence ISC) |
 | `config.js` | adresse et clé publique de **votre** projet Supabase |
 | `supabase/schema.sql` | tables, règles de sécurité et limite de 5 membres |
 | `supabase/02_code_secret.sql` | double vérification : code d'activation et code secret |
