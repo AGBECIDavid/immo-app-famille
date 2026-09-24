@@ -355,11 +355,11 @@ function hideLoader() { document.getElementById('loader').classList.remove('visi
 ============================================================ */
 const APP_VIEWS = ['home', 'form', 'detail', 'admin'];
 
-let gateView = 'auth';   // dernier écran « hors app » affiché (connexion, code secret, attente…)
+let gateView = 'auth';        // dernier écran « hors app » affiché (connexion, mot de passe, attente…)
+let accessGranted = false;   // membre accepté ET étape du mot de passe franchie
 
 function isApproved() { return !!(currentMember && currentMember.statut === 'approuve'); }
-// Accès complet = membre accepté ET code secret donné pour cette session
-function hasAccess()  { return isApproved() && currentMember.session_verifiee === true; }
+function hasAccess()  { return isApproved() && accessGranted; }
 function isAdmin()    { return hasAccess() && currentMember.role === 'admin'; }
 
 // Connecté mais pas (encore) autorisé → on reste sur l'écran d'étape en cours
@@ -1244,7 +1244,7 @@ function closeLightbox() {
   document.getElementById('lightbox').classList.remove('open');
   document.getElementById('lightbox-img').src = '';
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeCodeModal(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLightbox(); closeInviteModal(); } });
 
 /* ============================================================
    🔔 TOASTS
@@ -1661,14 +1661,11 @@ async function exportBienPDF(id) {
 
 /* ============================================================
    🔐 CONNEXION & DEMANDE D'ACCÈS
-   - Un proche envoie nom / prénom / e-mail  → demande "en_attente"
-   - L'admin valide depuis le panneau 👑      → "approuve"
-   - Connexion en 2 étapes :
-       1. code (ou lien) reçu par e-mail  → prouve qu'on possède l'adresse
-       2. code secret personnel           → prouve que c'est bien la personne
-     La 1re fois, le membre saisit le code d'activation donné par l'admin
-     (par téléphone / WhatsApp) puis choisit son code secret.
-     La base refuse tout accès aux biens tant que l'étape 2 n'est pas faite.
+   - Un proche envoie nom / prénom / e-mail      → demande "en_attente"
+   - L'admin l'accepte                           → un code lui est envoyé par e-mail
+   - 1re connexion : code (ou lien) de l'e-mail  → il crée son mot de passe
+   - Ensuite : e-mail + mot de passe, sur n'importe quel appareil
+   - Mot de passe oublié : nouveau code par e-mail → nouveau mot de passe
 ============================================================ */
 function configOk() {
   const c = window.IMMO_CONFIG || {};
@@ -1683,18 +1680,36 @@ function appUrl() {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// Connexion faite avec un code / lien reçu par e-mail : on propose alors de
+// (re)définir le mot de passe. Partagé entre onglets (le lien s'ouvre souvent ailleurs).
+const EMAIL_LOGIN_KEY = 'immofamille_connexion_par_email';
+
+function markEmailLogin(on) {
+  try {
+    if (on) localStorage.setItem(EMAIL_LOGIN_KEY, '1');
+    else    localStorage.removeItem(EMAIL_LOGIN_KEY);
+  } catch (e) { /* ignore */ }
+}
+
+function isEmailLogin() {
+  try { return localStorage.getItem(EMAIL_LOGIN_KEY) === '1'; } catch (e) { return false; }
+}
+
 function setAuthTab(tab) {
   ['login', 'demande'].forEach(t =>
     document.getElementById('tab-' + t).classList.toggle('active', t === tab || (tab === 'otp' && t === 'login')));
   ['login', 'demande', 'otp'].forEach(t =>
     document.getElementById('pane-' + t).classList.toggle('active', t === tab));
+  // Pendant l'attente de l'e-mail, l'écran ne montre que cette étape
+  document.querySelector('#view-auth .gate-card').classList.toggle('otp-mode', tab === 'otp');
   setAuthMessage('');
+  if (tab !== 'otp') stopWaitingForEmail();
 }
 
 function setAuthMessage(html, type = '') {
   const el = document.getElementById('auth-message');
   if (!el) return;
-  el.className = 'auth-message' + (html ? ' visible ' + type : '');
+  el.className = 'notice' + (html ? ' visible ' + type : '');
   el.innerHTML = html;
 }
 
@@ -1706,90 +1721,185 @@ function setBusy(btnId, busy, label) {
   btn.disabled = busy;
 }
 
+function isRateLimited(error) {
+  return !!error && (error.status === 429 || /rate limit|security purposes/i.test(error.message || ''));
+}
+
 function authErrorMessage(error) {
   if (!error) return '';
-  if (error.status === 429 || /rate limit|security purposes/i.test(error.message || '')) {
-    return 'Trop de tentatives. Patientez quelques minutes avant de réessayer.';
-  }
+  if (isRateLimited(error)) return 'Trop de tentatives. Patientez une minute avant de réessayer.';
   return error.message || 'Erreur inconnue.';
 }
 
 function goToLogin(email) {
   setAuthTab('login');
   document.getElementById('login-email').value = email || '';
+  document.getElementById('login-password').focus();
 }
 
-async function sendLoginLink() {
-  const email = document.getElementById('login-email').value.trim().toLowerCase();
+function togglePassword(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.innerHTML = icon(show ? 'eye-off' : 'eye');
+  btn.setAttribute('aria-label', show ? 'Masquer le mot de passe' : 'Afficher le mot de passe');
+}
+
+/** L'adresse peut-elle se connecter ? Sinon, explique pourquoi et renvoie false. */
+async function checkEmailAllowed(email) {
+  const { data: statut, error } = await sb.rpc('statut_email', { p_email: email });
+  if (error) throw error;
+  if (statut === 'approuve') return true;
+
+  if (statut === 'en_attente') {
+    setAuthMessage('Votre demande est <strong>en attente</strong> : l\'administrateur doit encore la valider. Vous recevrez alors un code par e-mail.');
+  } else if (statut === 'refuse') {
+    setAuthMessage('Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
+  } else {
+    setAuthMessage('Aucune demande pour cette adresse. ' +
+      '<button type="button" class="link-btn" onclick="setAuthTab(\'demande\')">Faire une demande d\'accès</button>', 'error');
+  }
+  return false;
+}
+
+// Pendant une connexion lancée ici, on ignore l'événement « connecté » de Supabase
+let signingIn = false;
+
+async function loginWithPassword() {
+  const email    = document.getElementById('login-email').value.trim().toLowerCase();
+  const password = document.getElementById('login-password').value;
   if (!EMAIL_RE.test(email)) return setAuthMessage('Adresse e-mail invalide.', 'error');
+  if (!password)             return setAuthMessage('Saisissez votre mot de passe.', 'error');
 
-  setBusy('btn-login', true, 'Vérification…');
+  setBusy('btn-login', true, 'Connexion…');
+  signingIn = true;
   try {
-    const { data: statut, error } = await sb.rpc('statut_email', { p_email: email });
-    if (error) throw error;
-
-    if (statut === 'inconnu') {
-      return setAuthMessage(
-        'Aucune demande pour cette adresse. ' +
-        '<button type="button" class="link-btn" onclick="setAuthTab(\'demande\')">Faire une demande d\'accès</button>', 'error');
+    if (!(await checkEmailAllowed(email))) return;
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      if (/invalid login credentials/i.test(error.message || '')) {
+        return setAuthMessage('E-mail ou mot de passe incorrect.<br>' +
+          'Première connexion ? Utilisez le bouton <strong>« Première connexion »</strong> ci-dessous.', 'error');
+      }
+      if (/not confirmed/i.test(error.message || '')) {
+        return setAuthMessage('Votre adresse n\'est pas encore confirmée : utilisez <strong>« Première connexion »</strong>.', 'error');
+      }
+      throw error;
     }
-    if (statut === 'en_attente') {
-      return setAuthMessage('Votre demande est <strong>en attente</strong> : l\'administrateur doit encore la valider.');
-    }
-    if (statut === 'refuse') {
-      return setAuthMessage('Votre demande a été refusée. Contactez l\'administrateur de la famille.', 'error');
-    }
-
-    await requestEmailCode(email);
+    markEmailLogin(false);
+    session = data.session;
+    document.getElementById('login-password').value = '';
+    await checkMembership();
   } catch (e) {
-    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
+    setAuthMessage(esc(authErrorMessage(e)), 'error');
   } finally {
+    signingIn = false;
     setBusy('btn-login', false);
   }
 }
 
 let otpEmail = '';
 
+/** « Première connexion » ou « Mot de passe oublié » : envoie un code par e-mail. */
+async function startEmailCode(purpose) {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) {
+    document.getElementById('login-email').focus();
+    return setAuthMessage(purpose === 'reset'
+      ? 'Saisissez d\'abord votre adresse e-mail ci-dessus, puis cliquez sur « Mot de passe oublié ».'
+      : 'Saisissez d\'abord votre adresse e-mail ci-dessus, puis cliquez sur « Première connexion ».', 'error');
+  }
+  try {
+    if (!(await checkEmailAllowed(email))) return;
+    await requestEmailCode(email);
+  } catch (e) {
+    setAuthMessage(esc(authErrorMessage(e)), 'error');
+  }
+}
+
 async function requestEmailCode(email) {
   const { error } = await sb.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
   });
-  if (error) throw error;
+  // Un code vient déjà d'être envoyé (par exemple par l'admin) : on laisse le saisir
+  if (error && !isRateLimited(error)) throw error;
+  showOtpPane(email, error ? 'Un e-mail vous a été envoyé il y a moins d\'une minute : utilisez son code ou son lien.' : '');
+}
+
+/** Écran « Vérifiez votre boîte mail », qui passe tout seul à la suite une fois confirmé. */
+function showOtpPane(email, notice) {
   otpEmail = email;
-  document.getElementById('otp-email').textContent = email;
+  document.getElementById('otp-intro').innerHTML =
+    `Un e-mail a été envoyé à <strong>${esc(email)}</strong>. Cliquez sur le lien qu'il contient pour confirmer votre adresse.`;
   document.getElementById('otp-code').value = '';
   setAuthTab('otp');
-  setAuthMessage('E-mail envoyé. Pensez à regarder dans les spams.', 'success');
-  setTimeout(() => document.getElementById('otp-code').focus(), 50);
+  if (notice) setAuthMessage(esc(notice));
+  waitForEmailConfirmation();
 }
 
 async function resendCode() {
   if (!otpEmail) return setAuthTab('login');
-  try {
-    await requestEmailCode(otpEmail);
-  } catch (e) {
-    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
-  }
+  const { error } = await sb.auth.signInWithOtp({
+    email: otpEmail,
+    options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
+  });
+  if (error) return setAuthMessage(esc(authErrorMessage(error)), 'error');
+  setAuthMessage('Nouvel e-mail envoyé. Utilisez le code le plus récent.', 'success');
 }
 
-/** Étape 1 : vérifie le code reçu par e-mail, dans ce même onglet. */
+/** Code saisi à la main (dans ce même onglet). */
 async function verifyEmailCode() {
   const token = document.getElementById('otp-code').value.replace(/\s/g, '');
   if (!/^\d{6,10}$/.test(token)) return setAuthMessage('Saisissez le code à chiffres reçu par e-mail.', 'error');
 
   setBusy('btn-otp', true, 'Vérification…');
+  signingIn = true;
   try {
     const { data, error } = await sb.auth.verifyOtp({ email: otpEmail, token, type: 'email' });
     if (error) {
       const expired = /expired|invalid/i.test(error.message || '');
-      return setAuthMessage('' + (expired ? 'Code incorrect ou expiré. Vérifiez-le ou demandez-en un nouveau.' : esc(authErrorMessage(error))), 'error');
+      return setAuthMessage(expired ? 'Code incorrect ou expiré. Vérifiez-le, ou renvoyez un code.' : esc(authErrorMessage(error)), 'error');
     }
+    markEmailLogin(true);
     session = data.session;
-    showToast('Adresse e-mail vérifiée', 'success');
+    stopWaitingForEmail();
+    showToast('Adresse e-mail confirmée', 'success');
     await checkMembership();
   } finally {
+    signingIn = false;
     setBusy('btn-otp', false);
+  }
+}
+
+/* Lien de l'e-mail ouvert dans un autre onglet : on le détecte ici
+   (événement Supabase, changement du stockage, retour sur l'onglet, et vérification régulière) */
+let waitTimer = null;
+
+function waitForEmailConfirmation() {
+  stopWaitingForEmail();
+  waitTimer = setInterval(detectExternalLogin, 2500);
+}
+
+function stopWaitingForEmail() {
+  if (waitTimer) clearInterval(waitTimer);
+  waitTimer = null;
+}
+
+async function detectExternalLogin() {
+  if (!sb || signingIn) return;
+  const { data } = await sb.auth.getSession();
+  const email = data.session && data.session.user ? data.session.user.email : null;
+  const known = session && session.user ? session.user.email : null;
+  if (email && email !== known) {
+    session = data.session;
+    stopWaitingForEmail();
+    showToast('Adresse e-mail confirmée', 'success');
+    checkMembership();
+  } else if (!email && known) {
+    session = null;
+    resetSessionState();
+    showView('auth');
   }
 }
 
@@ -1808,7 +1918,7 @@ async function sendDemande() {
 
     const loginBtn = `<button type="button" class="link-btn" onclick="goToLogin('${escAttr(email)}')">Se connecter</button>`;
     const messages = {
-      envoyee:          [`Merci ${esc(prenom)}, votre demande est envoyée !<br>Dès que l'administrateur l'aura acceptée, revenez ici et cliquez sur « Se connecter » avec <strong>${esc(email)}</strong>.`, 'success'],
+      envoyee:          [`Merci ${esc(prenom)}, votre demande est envoyée !<br>Dès que l'administrateur l'aura acceptée, vous recevrez un code par e-mail à <strong>${esc(email)}</strong> pour créer votre mot de passe.`, 'success'],
       en_attente:       ['Une demande existe déjà pour cette adresse. Elle attend la validation de l\'administrateur.', ''],
       approuve:         [`Cette adresse est déjà acceptée. ${loginBtn}`, 'success'],
       refuse:           ['Une demande pour cette adresse a été refusée. Contactez l\'administrateur de la famille.', 'error'],
@@ -1821,7 +1931,7 @@ async function sendDemande() {
       ['dem-prenom', 'dem-nom', 'dem-email'].forEach(id => { document.getElementById(id).value = ''; });
     }
   } catch (e) {
-    setAuthMessage('' + esc(authErrorMessage(e)), 'error');
+    setAuthMessage(esc(authErrorMessage(e)), 'error');
   } finally {
     setBusy('btn-demande', false);
   }
@@ -1834,12 +1944,18 @@ async function logout() {
 }
 
 function resetSessionState() {
-  otpEmail      = '';
+  otpEmail       = '';
+  accessGranted  = false;
+  currentMember  = null;
+  biensCache     = [];
+  membresCache   = [];
+  markEmailLogin(false);
+  stopWaitingForEmail();
   setAuthTab('login');
-  document.getElementById('login-email').value = '';
-  currentMember = null;
-  biensCache    = [];
-  membresCache  = [];
+  ['login-email', 'login-password', 'new-password', 'new-password2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   document.body.classList.remove('is-admin');
 }
 
@@ -1852,7 +1968,7 @@ function showMessage(iconName, title, html, actions) {
   showView('message');
 }
 
-/** Après la vérification de l'e-mail : décide de l'étape suivante selon l'état en base. */
+/** Après connexion : décide de l'étape suivante selon l'état en base. */
 let checking = null;
 function checkMembership() {
   // Évite deux vérifications simultanées (ex. événement d'un autre onglet + clic)
@@ -1863,6 +1979,7 @@ function checkMembership() {
 async function doCheckMembership() {
   const email = (session && session.user && session.user.email || '').toLowerCase();
   if (!email) return showView('auth');
+  accessGranted = false;
 
   const { data: etat, error } = await sb.rpc('mon_etat');
   if (error) {
@@ -1871,8 +1988,6 @@ async function doCheckMembership() {
        <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`);
   }
   currentMember = etat.statut === 'inconnu' ? null : etat;
-
-  if (hasAccess()) return enterApp();
 
   const actions = `<button class="btn btn-primary" onclick="checkMembership()">Vérifier à nouveau</button>
                    <button class="btn btn-ghost" onclick="logout()">Se déconnecter</button>`;
@@ -1889,96 +2004,88 @@ async function doCheckMembership() {
       `Bonjour ${esc(etat.prenom)} ! Votre demande est bien reçue.<br>L'administrateur doit la valider avant que vous puissiez accéder aux biens.`, actions);
   }
 
-  // Membre accepté : 2e étape (code secret)
-  if (etat.bloque) {
-    return showMessage('lock', 'Compte bloqué',
-      'Trop d\'essais avec un mauvais code.<br>Demandez à l\'administrateur de vous donner un <strong>nouveau code d\'activation</strong>.', actions);
-  }
-  if (etat.pin_defini)  return showVerify('pin');
-  if (etat.activation)  return showVerify('activation');
-  if (etat.role === 'admin') return showVerify('creation');
-  if (etat.activation_expiree) {
-    return showMessage('clock', 'Code d\'activation expiré',
-      'Votre code d\'activation n\'est plus valable (7 jours).<br>Demandez-en un nouveau à l\'administrateur.', actions);
-  }
-  return showMessage('key-round', 'Presque terminé !',
-    `Bonjour ${esc(etat.prenom)}, votre demande est acceptée.<br>` +
-    'Pour finir, il vous faut le <strong>code d\'activation</strong> que l\'administrateur vous donnera par téléphone ou WhatsApp.', actions);
+  // Membre accepté : a-t-il déjà un mot de passe ?
+  const { data: u } = await sb.auth.getUser();
+  const meta = (u && u.user && u.user.user_metadata) || {};
+  if (!meta.mdp_defini) return showPasswordStep('create');
+  if (isEmailLogin())   return showPasswordStep('reset');
+
+  accessGranted = true;
+  return enterApp();
 }
 
 /* ------------------------------------------------------------
-   Étape 2 : code secret
-   mode 'pin'        → saisir son code secret
-   mode 'activation' → code d'activation + choix du code secret (1re connexion)
-   mode 'creation'   → l'admin choisit son code secret (1re connexion)
+   Création / changement du mot de passe
+   'create' → 1re connexion · 'reset' → connecté par code e-mail (oubli)
 ------------------------------------------------------------ */
-let verifyMode = 'pin';
+const PASSWORD_RULES = {
+  length: p => p.length >= 8,
+  letter: p => /[a-zA-ZÀ-ÿ]/.test(p),
+  digit:  p => /\d/.test(p)
+};
 
-function showVerify(mode) {
-  verifyMode = mode;
-  const first = mode !== 'pin';
-  const texts = {
-    pin:        ['Votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Saisissez votre code secret à 6 chiffres.`],
-    activation: ['Activez votre compte', `Bienvenue ${esc(currentMember.prenom)} ! Saisissez le code d'activation que l'administrateur vous a donné, puis choisissez votre code secret. Il vous sera demandé à chaque nouvelle connexion.`],
-    creation:   ['Choisissez votre code secret', `Bonjour ${esc(currentMember.prenom)} ! Choisissez un code secret à 6 chiffres. Il vous sera demandé à chaque nouvelle connexion, en plus de l'e-mail.`]
-  };
-  document.getElementById('verify-title').textContent = texts[mode][0];
-  document.getElementById('verify-text').innerHTML    = texts[mode][1];
-  document.getElementById('grp-activation').style.display = mode === 'activation' ? '' : 'none';
-  document.getElementById('grp-pin2').style.display       = first ? '' : 'none';
-  document.getElementById('lbl-pin').textContent = first ? 'Choisissez votre code secret (6 chiffres)' : 'Code secret';
-  document.getElementById('btn-verify').textContent = first ? 'Activer mon compte' : 'Accéder';
-  ['v-activation', 'v-pin', 'v-pin2'].forEach(id => { document.getElementById(id).value = ''; });
-  setVerifyMessage('');
-  showView('verify');
-  setTimeout(() => document.getElementById(mode === 'activation' ? 'v-activation' : 'v-pin').focus(), 200);
+function showPasswordStep(mode) {
+  const reset = mode === 'reset';
+  document.getElementById('password-title').textContent = reset ? 'Nouveau mot de passe' : 'Créez votre mot de passe';
+  document.getElementById('password-text').innerHTML = reset
+    ? `Bonjour ${esc(currentMember.prenom)}, vous vous êtes connecté avec un code reçu par e-mail. Choisissez un nouveau mot de passe, ou gardez l'actuel.`
+    : `Bienvenue ${esc(currentMember.prenom)} ! Choisissez le mot de passe que vous utiliserez pour vous connecter, sur tous vos appareils.`;
+  document.getElementById('btn-keep-password').style.display = reset ? '' : 'none';
+  document.getElementById('keep-sep').style.display          = reset ? '' : 'none';
+  document.getElementById('password-username').value = currentMember.email || '';
+  ['new-password', 'new-password2'].forEach(id => { document.getElementById(id).value = ''; });
+  updatePasswordRules();
+  setPasswordMessage('');
+  showView('password');
+  setTimeout(() => document.getElementById('new-password').focus(), 200);
 }
 
-function setVerifyMessage(html, type = '') {
-  const el = document.getElementById('verify-message');
-  el.className = 'auth-message' + (html ? ' visible ' + type : '');
+function setPasswordMessage(html, type = '') {
+  const el = document.getElementById('password-message');
+  el.className = 'notice' + (html ? ' visible ' + type : '');
   el.innerHTML = html;
 }
 
-function isWeakPin(pin) {
-  return /^(\d)\1{5}$/.test(pin) || ['123456', '654321', '012345', '123123', '121212'].includes(pin);
+function updatePasswordRules() {
+  const pwd = document.getElementById('new-password').value;
+  let ok = true;
+  document.querySelectorAll('#password-rules li').forEach(li => {
+    const pass = PASSWORD_RULES[li.dataset.rule](pwd);
+    ok = ok && pass;
+    if (li.classList.contains('ok') !== pass || !li.querySelector('.icon')) {
+      li.classList.toggle('ok', pass);
+      li.querySelector('svg, i').outerHTML = icon(pass ? 'circle-check' : 'circle');
+    }
+  });
+  return ok;
 }
 
-async function submitVerify() {
-  const activation = document.getElementById('v-activation').value.trim();
-  const pin        = document.getElementById('v-pin').value.trim();
-  const pin2       = document.getElementById('v-pin2').value.trim();
+async function submitPassword() {
+  const pwd  = document.getElementById('new-password').value;
+  const pwd2 = document.getElementById('new-password2').value;
+  if (!updatePasswordRules()) return setPasswordMessage('Le mot de passe doit contenir au moins 8 caractères, dont une lettre et un chiffre.', 'error');
+  if (pwd !== pwd2)           return setPasswordMessage('Les deux mots de passe ne correspondent pas.', 'error');
 
-  if (verifyMode === 'activation' && !/^\d{6}$/.test(activation)) {
-    return setVerifyMessage('Le code d\'activation contient 6 chiffres.', 'error');
-  }
-  if (!/^\d{6}$/.test(pin)) return setVerifyMessage('Le code secret contient exactement 6 chiffres.', 'error');
-  if (verifyMode !== 'pin') {
-    if (isWeakPin(pin)) return setVerifyMessage('Ce code est trop simple, choisissez-en un autre.', 'error');
-    if (pin !== pin2)   return setVerifyMessage('Les deux codes secrets ne correspondent pas.', 'error');
-  }
-
-  setBusy('btn-verify', true, 'Vérification…');
+  setBusy('btn-password', true, 'Enregistrement…');
   try {
-    const { data: res, error } = verifyMode === 'pin'
-      ? await sb.rpc('verifier_code_secret', { p_pin: pin })
-      : await sb.rpc('activer_code_secret', { p_activation: verifyMode === 'activation' ? activation : null, p_pin: pin });
-    if (error) return setVerifyMessage('' + esc(error.message), 'error');
-
-    if (res === 'ok') {
-      showToast(verifyMode === 'pin' ? 'Identité vérifiée' : 'Compte activé ! Retenez bien votre code secret.', 'success');
-      return checkMembership();
+    const { error } = await sb.auth.updateUser({ password: pwd, data: { mdp_defini: true } });
+    if (error) {
+      if (/different from the old/i.test(error.message || '')) {
+        return setPasswordMessage('C\'est déjà votre mot de passe actuel. Choisissez-en un autre, ou gardez l\'actuel.', 'error');
+      }
+      return setPasswordMessage(esc(authErrorMessage(error)), 'error');
     }
-    if (res && res.startsWith('incorrect:')) {
-      const left = res.split(':')[1];
-      document.getElementById(verifyMode === 'activation' ? 'v-activation' : 'v-pin').value = '';
-      return setVerifyMessage(`Code incorrect. Encore <strong>${esc(left)}</strong> essai(s) avant blocage du compte.`, 'error');
-    }
-    // bloque / expire / pas_de_code / deja_defini → l'état a changé, on relit
-    return checkMembership();
+    markEmailLogin(false);
+    showToast('Mot de passe enregistré', 'success');
+    await checkMembership();
   } finally {
-    setBusy('btn-verify', false);
+    setBusy('btn-password', false);
   }
+}
+
+function keepCurrentPassword() {
+  markEmailLogin(false);
+  checkMembership();
 }
 
 function enterApp() {
@@ -2015,28 +2122,27 @@ document.addEventListener('click', e => {
 /* ============================================================
    👑 ADMINISTRATION DES MEMBRES
 ============================================================ */
-let securite = {};   // membre_id → { pin_defini, activation_valide, bloque }
+let comptes = {};   // membre_id → { compte_cree, mot_de_passe, derniere_connexion }
 
 async function loadMembres() {
   if (!isAdmin()) return;
   const [res, secu] = await Promise.all([
     sb.from('membres').select('*').order('created_at'),
-    sb.rpc('etat_securite_membres')
+    sb.rpc('etat_comptes')
   ]);
   if (res.error) return showToast('Impossible de charger les membres : ' + res.error.message, 'error');
   membresCache = res.data;
-  securite = {};
-  (secu.data || []).forEach(x => { securite[x.membre_id] = x; });
+  comptes = {};
+  (secu.data || []).forEach(x => { comptes[x.membre_id] = x; });
   updateAdminBadge();
 }
 
 function secuBadge(m) {
-  if (m.statut !== 'approuve') return '';
-  const x = securite[m.id] || {};
-  if (x.bloque)            return `<span class="tag tag-danger">${icon('lock')}Bloqué</span>`;
-  if (x.pin_defini)        return `<span class="tag tag-ok">${icon('shield-check')}Code secret actif</span>`;
-  if (x.activation_valide) return `<span class="tag tag-warn">${icon('key-round')}Activation en attente</span>`;
-  return `<span class="tag tag-danger">${icon('triangle-alert')}Sans code</span>`;
+  if (m.statut !== 'approuve' || m.role === 'admin') return '';
+  const x = comptes[m.id] || {};
+  if (x.mot_de_passe) return `<span class="tag tag-ok">${icon('shield-check')}Compte activé</span>`;
+  if (x.compte_cree)  return `<span class="tag tag-warn">${icon('mail')}Invitation envoyée</span>`;
+  return `<span class="tag tag-neutral">${icon('clock')}Pas encore invité</span>`;
 }
 
 function updateAdminBadge() {
@@ -2090,8 +2196,7 @@ function renderAdmin() {
 
   document.getElementById('admin-membres').innerHTML = membres.length
     ? membres.map(m => membreItem(m, m.role === 'admin' ? '' :
-        `<button class="btn btn-sm btn-secondary" title="Nouveau code d'activation (débloque ou remplace un code oublié)" onclick="newActivationCode('${m.id}')">${icon('key-round')}Code</button>
-         <button class="btn btn-sm btn-secondary" title="Envoyer un e-mail de bienvenue" onclick="notifyMembre('${m.id}')">${icon('mail')}Prévenir</button>
+        `${(comptes[m.id] || {}).mot_de_passe ? '' : `<button class="btn btn-sm btn-secondary" title="Envoyer à nouveau le code par e-mail" onclick="sendInvite('${m.id}')">${icon('send')}Renvoyer l'invitation</button>`}
          <button class="btn btn-sm btn-ghost" onclick="removeMembre('${m.id}')">Retirer</button>`)).join('')
     : '<p class="member-empty">Aucun membre.</p>';
 
@@ -2117,7 +2222,7 @@ async function decideMembre(id, statut) {
 
   if (statut === 'approuve') {
     showToast(`${m.prenom} fait maintenant partie de la famille !`, 'success');
-    await newActivationCode(id, true);
+    await sendInvite(id);
   } else {
     showToast(`Demande de ${m.prenom} refusée.`, 'success');
   }
@@ -2127,7 +2232,7 @@ async function removeMembre(id) {
   const m = membresCache.find(x => x.id === id);
   if (!m || m.role === 'admin') return;
   const msg = m.statut === 'approuve'
-    ? `Retirer ${m.prenom} ${m.nom} de la famille ? Il/elle n'aura plus accès aux biens.`
+    ? `Retirer ${m.prenom} ${m.nom} de la famille ? Son compte de connexion sera supprimé et il/elle n'aura plus accès aux biens.`
     : `Effacer la demande de ${m.prenom} ${m.nom} ? La personne pourra refaire une demande.`;
   if (!confirm(msg)) return;
 
@@ -2140,64 +2245,44 @@ async function removeMembre(id) {
   renderAdmin();
 }
 
-function notifyMembre(id) {
-  const m = membresCache.find(x => x.id === id);
-  if (!m) return;
-  const subject = 'Ton accès à ImmoFamille est validé';
-  const body =
-    `Bonjour ${m.prenom},\n\n` +
-    `Ta demande d'accès à ImmoFamille est acceptée !\n\n` +
-    `Pour te connecter, ouvre ce lien, clique sur « Se connecter » et saisis ton adresse (${m.email}) :\n` +
-    `${appUrl()}\n\n` +
-    `Tu recevras un code par e-mail. La première fois, on te demandera aussi le code d'activation ` +
-    `que je te donne par téléphone / WhatsApp (jamais par e-mail), puis tu choisiras ton code secret.\n\n` +
-    `À bientôt,\n${currentMember.prenom}`;
-  window.location.href = `mailto:${encodeURIComponent(m.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
+
 
 /* ------------------------------------------------------------
-   Codes d'activation
+   Invitation : Supabase envoie au membre un e-mail avec un code
+   à 6 chiffres (et un lien) pour créer son mot de passe
 ------------------------------------------------------------ */
-let modalCode = '';
-
-async function newActivationCode(id, afterApproval = false) {
+async function sendInvite(id) {
   const m = membresCache.find(x => x.id === id);
   if (!m) return;
-  const x = securite[id] || {};
-  if (!afterApproval && (x.pin_defini || x.activation_valide) &&
-      !confirm(`Générer un nouveau code pour ${m.prenom} ?\n\nSon code actuel ne marchera plus et il/elle devra se réactiver.`)) return;
-
-  const { data: code, error } = await sb.rpc('generer_code_activation', { p_membre: id });
-  if (error) return showToast('' + error.message, 'error');
+  const { error } = await sb.auth.signInWithOtp({
+    email: m.email,
+    options: { emailRedirectTo: appUrl(), shouldCreateUser: true }
+  });
   await loadMembres();
   renderAdmin();
-  showCodeModal(m, code, afterApproval);
+  showInviteModal(m, error);
 }
 
-function showCodeModal(m, code, afterApproval) {
-  modalCode = code;
+function showInviteModal(m, error) {
+  const ok = !error;
+  document.getElementById('invite-modal-icon').innerHTML = icon(ok ? 'mail-check' : 'triangle-alert');
+  document.getElementById('invite-modal-title').textContent = ok ? 'Invitation envoyée' : 'Invitation non envoyée';
+  document.getElementById('invite-modal-text').innerHTML = ok
+    ? `<strong>${esc(m.prenom)}</strong> a reçu un e-mail à <strong>${esc(m.email)}</strong> avec un code à 6 chiffres. Pour entrer :`
+    : (isRateLimited(error)
+        ? `Un e-mail a déjà été envoyé à ${esc(m.prenom)} il y a moins d'une minute. Réessayez dans un instant avec « Renvoyer l'invitation ».`
+        : `L'e-mail n'a pas pu partir : ${esc(error.message || 'erreur inconnue')}.<br>Vérifiez le service d'envoi d'e-mails (SMTP) dans Supabase.`);
+  document.getElementById('invite-modal-steps').style.display = ok ? '' : 'none';
   const msg =
-    `Bonjour ${m.prenom}, voici ton code d'activation ImmoFamille : ${code}\n` +
-    `Il est valable 7 jours. Connecte-toi ici avec ton e-mail (${m.email}) : ${appUrl()}`;
-  document.getElementById('code-modal-text').innerHTML = (afterApproval
-    ? `${esc(m.prenom)} est accepté(e) ! Pour sa première connexion, il/elle aura besoin de ce code :`
-    : `Nouveau code pour <strong>${esc(m.prenom)} ${esc(m.nom)}</strong> :`);
-  document.getElementById('code-modal-code').textContent = code;
-  document.getElementById('code-modal-whatsapp').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
-  document.getElementById('code-modal-sms').href = 'sms:?&body=' + encodeURIComponent(msg);
-  document.getElementById('code-modal').classList.add('open');
+    `Bonjour ${m.prenom}, ta demande d'accès à ImmoFamille est acceptée ! ` +
+    `Tu as reçu un e-mail avec un code à 6 chiffres. Va sur ${appUrl()}, ` +
+    `clique sur « Première connexion », saisis le code puis crée ton mot de passe.`;
+  document.getElementById('invite-modal-whatsapp').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+  document.getElementById('invite-modal').classList.add('open');
 }
 
-function closeCodeModal() {
-  document.getElementById('code-modal').classList.remove('open');
-  document.getElementById('code-modal-code').textContent = '';
-  modalCode = '';
-}
-
-function copyActivationCode() {
-  if (!modalCode) return;
-  const done = () => showToast('Code copié !', 'success');
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(modalCode).then(done, () => {});
+function closeInviteModal() {
+  document.getElementById('invite-modal').classList.remove('open');
 }
 
 function copyShareLink() {
@@ -2238,44 +2323,40 @@ async function initApp() {
   const hash = new URLSearchParams(window.location.hash.slice(1));
   const linkError = hash.get('error_description');
 
+  // Lien de l'e-mail ouvert dans cet onglet : on proposera de (re)définir le mot de passe
+  if (hash.get('access_token')) markEmailLogin(true);
+
   const { data } = await sb.auth.getSession();
   session = data.session;
 
   // Changement de session : lien cliqué dans un autre onglet, déconnexion ailleurs…
   sb.auth.onAuthStateChange((event, newSession) => {
     const prevEmail = session && session.user ? session.user.email : null;
-    session = newSession;
     if (event === 'SIGNED_OUT') {
-      resetSessionState();
-      showView('auth');
-    } else if (event === 'SIGNED_IN' && newSession && newSession.user.email !== prevEmail) {
-      // Ne pas appeler Supabase directement dans ce callback
-      setTimeout(() => {
-        showToast('Adresse e-mail vérifiée', 'success');
-        checkMembership();
-      }, 0);
-    }
-  });
-
-  // Filet de sécurité : en revenant sur cet onglet, on regarde si la connexion
-  // a été faite ailleurs (lien de l'e-mail ouvert dans un nouvel onglet)
-  const recheck = async () => {
-    if (document.visibilityState !== 'visible') return;
-    const { data: d } = await sb.auth.getSession();
-    const email = d.session && d.session.user ? d.session.user.email : null;
-    const known = session && session.user ? session.user.email : null;
-    if (email && email !== known) {
-      session = d.session;
-      showToast('Adresse e-mail vérifiée', 'success');
-      checkMembership();
-    } else if (!email && known) {
       session = null;
       resetSessionState();
       showView('auth');
+      return;
     }
-  };
-  document.addEventListener('visibilitychange', recheck);
-  window.addEventListener('focus', recheck);
+    if (event === 'SIGNED_IN' && newSession && newSession.user.email !== prevEmail && !signingIn) {
+      session = newSession;
+      // Ne pas appeler Supabase directement dans ce callback
+      setTimeout(() => {
+        stopWaitingForEmail();
+        showToast('Adresse e-mail confirmée', 'success');
+        checkMembership();
+      }, 0);
+      return;
+    }
+    if (newSession) session = newSession;
+  });
+
+  // Filets de sécurité pour le lien ouvert dans un autre onglet :
+  // retour sur cet onglet, et modification du stockage partagé par Supabase
+  const onVisible = () => { if (document.visibilityState === 'visible') detectExternalLogin(); };
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onVisible);
+  window.addEventListener('storage', e => { if (e.key && e.key.startsWith('sb-')) detectExternalLogin(); });
 
   if (window.location.hash) history.replaceState(null, '', appUrl() + window.location.search);
 

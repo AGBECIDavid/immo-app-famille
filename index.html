@@ -90,24 +90,22 @@
   <img id="lightbox-img" src="" alt="Photo agrandie"/>
 </div>
 
-<!-- Code d'activation (admin) -->
-<div class="modal" id="code-modal" onclick="if (event.target === this) closeCodeModal()">
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="code-modal-title">
-    <div class="state-icon"><i data-icon="key-round"></i></div>
-    <h2 class="gate-title" id="code-modal-title">Code d'activation</h2>
-    <p class="gate-text" id="code-modal-text"></p>
-    <div class="code-display" id="code-modal-code"></div>
-    <p class="hint">Valable 7 jours · utilisable une seule fois</p>
-    <div class="callout">
-      <i data-icon="shield-check"></i>
-      <p>Donnez ce code <strong>de vive voix, par SMS ou WhatsApp</strong>, jamais par e-mail. C'est ce qui garantit que c'est bien la bonne personne qui se connecte.</p>
+<!-- Invitation envoyée (admin) -->
+<div class="modal" id="invite-modal" onclick="if (event.target === this) closeInviteModal()">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+    <div class="state-icon" id="invite-modal-icon"><i data-icon="mail-check"></i></div>
+    <h2 class="gate-title" id="invite-modal-title">Invitation envoyée</h2>
+    <p class="gate-text" id="invite-modal-text"></p>
+    <ol class="how-list" id="invite-modal-steps">
+      <li>Il ouvre l'application et clique sur <strong>« Première connexion »</strong>.</li>
+      <li>Il saisit le <strong>code à 6 chiffres</strong> reçu par e-mail (ou clique sur le lien de l'e-mail).</li>
+      <li>Il crée son <strong>mot de passe</strong>. C'est fini.</li>
+    </ol>
+    <div class="modal-actions modal-actions-2">
+      <a class="btn btn-secondary" id="invite-modal-whatsapp" target="_blank" rel="noopener"><i data-icon="message-circle"></i>Prévenir sur WhatsApp</a>
+      <button type="button" class="btn btn-secondary" onclick="copyShareLink()"><i data-icon="copy"></i>Copier le lien</button>
     </div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-secondary" onclick="copyActivationCode()"><i data-icon="copy"></i>Copier</button>
-      <a class="btn btn-secondary" id="code-modal-whatsapp" target="_blank" rel="noopener"><i data-icon="message-circle"></i>WhatsApp</a>
-      <a class="btn btn-secondary" id="code-modal-sms"><i data-icon="send"></i>SMS</a>
-    </div>
-    <button type="button" class="btn btn-primary btn-block" onclick="closeCodeModal()">C'est noté</button>
+    <button type="button" class="btn btn-primary btn-block" onclick="closeInviteModal()">C'est noté</button>
   </div>
 </div>
 
@@ -151,41 +149,58 @@
   <div class="gate-page">
     <div class="gate-card fade-in">
       <h2 class="gate-title">Bienvenue</h2>
-      <p class="gate-text">Connectez-vous à l'espace de la famille, ou demandez à y entrer.</p>
+      <p class="gate-text" id="auth-intro">Connectez-vous à l'espace de la famille, ou demandez à y entrer.</p>
 
       <div class="segmented" role="tablist">
         <button type="button" class="segmented-btn active" id="tab-login" onclick="setAuthTab('login')">Se connecter</button>
         <button type="button" class="segmented-btn" id="tab-demande" onclick="setAuthTab('demande')">Demander l'accès</button>
       </div>
 
-      <!-- Connexion -->
-      <form class="auth-pane active" id="pane-login" onsubmit="event.preventDefault(); sendLoginLink();">
+      <!-- Connexion : e-mail + mot de passe -->
+      <form class="auth-pane active" id="pane-login" onsubmit="event.preventDefault(); loginWithPassword();">
         <div class="field">
           <label class="label" for="login-email">Adresse e-mail</label>
-          <input type="email" id="login-email" class="input" placeholder="vous@exemple.com" autocomplete="email" required/>
+          <input type="email" id="login-email" class="input" placeholder="vous@exemple.com" autocomplete="username" required/>
         </div>
-        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-login">Recevoir mon code de connexion</button>
-        <p class="hint center">Pas de mot de passe : un code vous est envoyé par e-mail, puis on vous demande votre code secret.</p>
+        <div class="field">
+          <div class="label-row">
+            <label class="label" for="login-password">Mot de passe</label>
+            <button type="button" class="link-btn link-sm" onclick="startEmailCode('reset')">Mot de passe oublié ?</button>
+          </div>
+          <div class="password-field">
+            <input type="password" id="login-password" class="input" autocomplete="current-password" required/>
+            <button type="button" class="reveal-btn" onclick="togglePassword('login-password', this)" aria-label="Afficher le mot de passe"><i data-icon="eye"></i></button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-login">Se connecter</button>
+        <div class="divider"><span>Nouveau dans la famille ?</span></div>
+        <button type="button" class="btn btn-secondary btn-block" onclick="startEmailCode('first')"><i data-icon="key-round"></i>Première connexion</button>
+        <p class="hint center">Votre demande a été acceptée ? Recevez un code par e-mail pour créer votre mot de passe.</p>
       </form>
 
-      <!-- Code reçu par e-mail -->
+      <!-- Vérifiez votre boîte mail (code ou lien reçu par e-mail) -->
       <form class="auth-pane" id="pane-otp" onsubmit="event.preventDefault(); verifyEmailCode();">
         <ol class="stepper">
           <li class="step active"><span class="step-dot">1</span>E-mail</li>
           <li class="step-line"></li>
-          <li class="step"><span class="step-dot">2</span>Code secret</li>
+          <li class="step"><span class="step-dot">2</span>Mot de passe</li>
         </ol>
-        <p class="gate-text">Un e-mail a été envoyé à <strong id="otp-email"></strong>. Cliquez sur le lien qu'il contient, ou saisissez son code ci-dessous.</p>
+        <div class="mail-wait">
+          <div class="state-icon"><i data-icon="mail-open"></i></div>
+          <h3 class="mail-wait-title">Vérifiez votre boîte mail</h3>
+          <p class="gate-text" id="otp-intro"></p>
+          <p class="waiting-line"><span class="pulse-dot"></span>En attente de confirmation… cette page passera toute seule à l'étape suivante.</p>
+        </div>
+        <div class="divider"><span>ou saisissez le code reçu</span></div>
         <div class="field">
           <input type="text" id="otp-code" class="input input-code" inputmode="numeric"
                  autocomplete="one-time-code" maxlength="10" placeholder="000000" aria-label="Code reçu par e-mail"/>
         </div>
-        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-otp">Vérifier mon e-mail</button>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-otp">Valider le code</button>
         <p class="hint center">
-          Vous avez cliqué sur le lien de l'e-mail ? Cette page se met à jour toute seule.<br>
-          <button type="button" class="link-btn" onclick="resendCode()">Renvoyer un code</button>
-          <span aria-hidden="true">·</span>
-          <button type="button" class="link-btn" onclick="setAuthTab('login')">Changer d'adresse</button>
+          Rien reçu ? Regardez dans les spams, ou
+          <button type="button" class="link-btn" onclick="resendCode()">renvoyez un code</button>.<br>
+          <button type="button" class="link-btn" onclick="setAuthTab('login')">Revenir à la connexion</button>
         </p>
       </form>
 
@@ -206,7 +221,7 @@
           <input type="email" id="dem-email" class="input" placeholder="vous@exemple.com" autocomplete="email" required/>
         </div>
         <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-demande">Envoyer ma demande</button>
-        <p class="hint center">L'administrateur de la famille valide chaque demande. Il vous donnera ensuite un code d'activation.</p>
+        <p class="hint center">L'administrateur de la famille valide chaque demande. Vous recevrez alors un code par e-mail pour créer votre mot de passe.</p>
       </form>
 
       <div class="notice" id="auth-message" role="status"></div>
@@ -215,37 +230,46 @@
 </div>
 
 <!-- ============================================================
-     CODE SECRET (2e étape de connexion)
+     MOT DE PASSE (création ou changement après un code e-mail)
 ============================================================ -->
-<div class="view" id="view-verify">
+<div class="view" id="view-password">
   <div class="gate-page">
     <div class="gate-card fade-in">
       <ol class="stepper">
         <li class="step done"><span class="step-dot"><i data-icon="check"></i></span>E-mail vérifié</li>
         <li class="step-line done"></li>
-        <li class="step active"><span class="step-dot">2</span>Code secret</li>
+        <li class="step active"><span class="step-dot">2</span>Mot de passe</li>
       </ol>
-      <h2 class="gate-title" id="verify-title"></h2>
-      <p class="gate-text" id="verify-text"></p>
+      <h2 class="gate-title" id="password-title">Créez votre mot de passe</h2>
+      <p class="gate-text" id="password-text"></p>
 
-      <form id="verify-form" onsubmit="event.preventDefault(); submitVerify();">
-        <div class="field" id="grp-activation">
-          <label class="label" for="v-activation">Code d'activation <span class="label-hint">donné par l'administrateur</span></label>
-          <input type="text" id="v-activation" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000"/>
+      <form id="password-form" onsubmit="event.preventDefault(); submitPassword();">
+        <input type="email" id="password-username" autocomplete="username" hidden/>
+        <div class="field">
+          <label class="label" for="new-password">Mot de passe</label>
+          <div class="password-field">
+            <input type="password" id="new-password" class="input" autocomplete="new-password" oninput="updatePasswordRules()" required/>
+            <button type="button" class="reveal-btn" onclick="togglePassword('new-password', this)" aria-label="Afficher le mot de passe"><i data-icon="eye"></i></button>
+          </div>
+          <ul class="rules" id="password-rules">
+            <li data-rule="length"><i data-icon="circle"></i>8 caractères minimum</li>
+            <li data-rule="letter"><i data-icon="circle"></i>Au moins une lettre</li>
+            <li data-rule="digit"><i data-icon="circle"></i>Au moins un chiffre</li>
+          </ul>
         </div>
-        <div class="field" id="grp-pin">
-          <label class="label" for="v-pin" id="lbl-pin">Code secret</label>
-          <input type="password" id="v-pin" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
+        <div class="field">
+          <label class="label" for="new-password2">Confirmez le mot de passe</label>
+          <input type="password" id="new-password2" class="input" autocomplete="new-password" required/>
         </div>
-        <div class="field" id="grp-pin2">
-          <label class="label" for="v-pin2">Confirmez votre code secret</label>
-          <input type="password" id="v-pin2" class="input input-code" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••"/>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-verify">Accéder</button>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-password">Enregistrer et accéder</button>
       </form>
 
-      <div class="notice" id="verify-message" role="status"></div>
-      <p class="hint center"><button type="button" class="link-btn" onclick="logout()">Se déconnecter</button></p>
+      <div class="notice" id="password-message" role="status"></div>
+      <p class="hint center">
+        <button type="button" class="link-btn" id="btn-keep-password" onclick="keepCurrentPassword()">Garder mon mot de passe actuel</button>
+        <span id="keep-sep" aria-hidden="true"> · </span>
+        <button type="button" class="link-btn" onclick="logout()">Se déconnecter</button>
+      </p>
     </div>
   </div>
 </div>

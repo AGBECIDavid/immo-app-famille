@@ -8,26 +8,21 @@ Les données sont **partagées** entre les membres de la famille, avec **5 perso
 
 1. Vous envoyez le lien de l'application à un proche.
 2. Il clique sur **« Demander l'accès »** et renseigne son **prénom, son nom et son e-mail**.
-3. Vous (l'admin) voyez la demande dans le panneau **👑** (un badge rouge compte les demandes en attente) et vous cliquez sur **✅ Accepter** ou **❌ Refuser**.
-4. Quand vous acceptez, l'app affiche un **code d'activation à 6 chiffres**. Donnez-le **par téléphone, SMS ou WhatsApp**, jamais par e-mail. Des boutons sont prévus pour ça.
-5. Il revient sur l'app, clique sur **« Se connecter »**, saisit son e-mail puis le **code reçu par e-mail**.
-6. La première fois, il saisit le **code d'activation**, puis il choisit son **code secret** à 6 chiffres.
-7. Aux connexions suivantes, sur un nouvel appareil ou après une déconnexion, on lui demande **le code e-mail + son code secret**.
+3. Vous (l'admin) voyez la demande dans l'onglet **Famille** (une pastille compte les demandes en attente) et vous cliquez sur **Accepter** ou **Refuser**.
+4. Quand vous acceptez, **un e-mail avec un code à 6 chiffres lui est envoyé automatiquement**. Un bouton permet aussi de le prévenir sur WhatsApp.
+5. Il ouvre l'app, saisit son e-mail et clique sur **« Première connexion »**. Il colle le code reçu (ou clique sur le lien de l'e-mail), puis **crée son mot de passe**.
+6. Ensuite, il se connecte avec **son e-mail et son mot de passe**, sur n'importe quel appareil.
+7. **Mot de passe oublié ?** Un nouveau code est envoyé par e-mail, et il choisit un nouveau mot de passe.
 
-### Pourquoi deux vérifications ?
-- **Le code e-mail** prouve que la personne possède la boîte mail.
-- **Le code d'activation** prouve que c'est bien la personne que vous avez acceptée. Quelqu'un qui aurait fait une demande avec le nom d'un proche ne l'aura jamais, puisque vous le donnez de vive voix.
-- **Le code secret** protège le compte même si la boîte mail est piratée ou ouverte sur un appareil partagé.
-- **5 erreurs** bloquent le compte. Le bouton **🔑 Code** du panneau admin génère alors un nouveau code d'activation. Il sert aussi quand un membre a oublié son code secret.
+Le mot de passe doit faire **au moins 8 caractères, avec au moins une lettre et un chiffre**.
 
 | Qui | Peut faire |
 |---|---|
 | **Admin** | tout : accepter, refuser et retirer des membres, supprimer des biens |
 | **Membre accepté** | voir, ajouter et modifier les biens, exporter en PDF et JSON |
 | **Demande en attente ou refusée** | rien : écran « en attente » ou « refusée » |
-| **Connecté sans code secret** | rien : la base refuse l'accès tant que le code secret n'est pas donné |
 
-Les règles sont vérifiées **par la base de données** et pas seulement par l'interface. Même en bricolant la page, on ne peut ni dépasser 5 membres, ni lire les biens sans avoir été accepté **et** sans avoir donné son code secret, ni retirer l'administrateur. Les codes sont stockés chiffrés (bcrypt), même vous ne pouvez pas les lire.
+Les règles sont vérifiées **par la base de données** et pas seulement par l'interface. Même en bricolant la page, on ne peut ni dépasser 5 membres, ni lire les biens sans avoir été accepté, ni retirer l'administrateur. **Retirer un membre supprime aussi son compte de connexion.**
 
 ## ⚙️ Installation (une seule fois, environ 15 minutes)
 
@@ -39,7 +34,7 @@ L'application utilise **[Supabase](https://supabase.com)** (gratuit) pour la bas
 ### 2. Créer les tables et les règles de sécurité
 - Ouvrez `supabase/schema.sql` et, **tout en bas**, remplacez `VOTRE_EMAIL@exemple.com`, `VOTRE_NOM` et `VOTRE_PRENOM` par **vos** informations. Ce compte sera l'administrateur.
 - Dans Supabase : **SQL Editor → New query**, collez tout le fichier, puis **Run**.
-- Faites de même avec **`supabase/02_code_secret.sql`**, qui ajoute la double vérification.
+- Faites de même avec **`supabase/03_mot_de_passe.sql`**, qui gère les comptes et les mots de passe. (Si vous aviez exécuté l'ancien `02_code_secret.sql`, ce fichier le remplace et le nettoie.)
 
 ### 3. Relier l'application à Supabase
 - Dans Supabase : **Project Settings → API**. Copiez la **Project URL** et la clé **anon public**.
@@ -68,6 +63,9 @@ Le service d'envoi gratuit de Supabase **n'envoie qu'aux membres de votre équip
    - **Host** : `smtp.gmail.com` · **Port** : `465`
    - **Username** : votre adresse Gmail · **Password** : le mot de passe d'application (sans espaces)
 3. Dans **Authentication → Rate Limits**, montez « Emails sent per hour » à `30`.
+4. Dans **Authentication → Sign In / Providers → Email** :
+   - **Email OTP Expiration** : `86400` (le code reste valable 24 h, le temps que le proche ouvre ses e-mails) ;
+   - **Minimum password length** : `8`, et **Password requirements** : *Letters and digits*.
 
 ### 5 ter. Mettre le code dans l'e-mail de connexion
 Une fois le SMTP branché, les modèles deviennent modifiables. Pour que l'e-mail contienne un **code à taper dans l'app** (et pas seulement un lien), allez dans **Authentication → Emails**. Dans **les deux modèles « Magic Link » et « Confirm signup »**, remplacez le contenu par :
@@ -87,13 +85,8 @@ Une fois le SMTP branché, les modèles deviennent modifiables. Pour que l'e-mai
 Ouvrez l'app, cliquez sur **Se connecter** avec votre e-mail d'admin, puis cliquez sur le lien reçu.
 Si des biens de l'ancienne version sont enregistrés dans ce navigateur, l'app propose de les **transférer dans l'espace familial**.
 
-## 🆘 J'ai oublié MON code secret (admin)
-Dans Supabase, ouvrez **SQL Editor** et exécutez :
-```sql
-delete from public.membres_secrets
-where membre_id = (select id from public.membres where role = 'admin');
-```
-À la prochaine connexion, l'app vous demandera de choisir un nouveau code secret.
+## 🆘 Mot de passe oublié (vous ou un membre)
+Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? »**. Un code arrive par e-mail, et on choisit un nouveau mot de passe.
 
 ## ⚠️ Bon à savoir (offre gratuite Supabase)
 - **Mise en pause après 7 jours sans activité.** Si personne n'utilise l'app pendant une semaine, le projet se met en pause. Il suffit de le relancer depuis le tableau de bord Supabase. Les données ne sont pas perdues.
@@ -110,4 +103,4 @@ where membre_id = (select id from public.membres where role = 'admin');
 | `icons.js` | icônes de l'interface ([Lucide](https://lucide.dev), licence ISC) |
 | `config.js` | adresse et clé publique de **votre** projet Supabase |
 | `supabase/schema.sql` | tables, règles de sécurité et limite de 5 membres |
-| `supabase/02_code_secret.sql` | double vérification : code d'activation et code secret |
+| `supabase/03_mot_de_passe.sql` | comptes, mots de passe, état des invitations |
