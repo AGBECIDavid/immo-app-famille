@@ -42,8 +42,16 @@ L'application utilise **[Supabase](https://supabase.com)** (gratuit) pour la bas
   (La clé *anon* est faite pour être publique. Ne mettez **jamais** la clé *service_role* dans ce fichier.)
 
 ### 4. Mettre l'application en ligne
-Avec **GitHub Pages** : dans le dépôt GitHub, **Settings → Pages → Branch : `main` / root**. L'app sera disponible à une adresse du type
-`https://agbecidavid.github.io/immo-app-famille/`
+L'app est publiée avec **GitHub Pages** (dépôt → **Settings → Pages → Branch : `main` / root**) à l'adresse :
+**https://agbecidavid.github.io/immo-app-famille/**
+
+Chaque `git push` sur `main` met le site à jour en 1 à 2 minutes (onglet **Actions** → « pages build and deployment »).
+
+> **À chaque mise en ligne**, changez le numéro `?v=…` des fichiers en bas de `index.html` (par ex. `?v=2026.10.02`). Sinon, pendant 10 minutes, certains téléphones pourraient mélanger l'ancienne et la nouvelle version.
+
+Sur téléphone, on peut **l'ajouter à l'écran d'accueil** : elle s'ouvre alors comme une application.
+- Android (Chrome) : menu **⋮ → Ajouter à l'écran d'accueil**.
+- iPhone (Safari) : bouton **Partager → Sur l'écran d'accueil**.
 
 Pour tester sur votre ordinateur : `python3 -m http.server 8000`, puis ouvrez `http://localhost:8000`.
 
@@ -51,8 +59,8 @@ Pour tester sur votre ordinateur : `python3 -m http.server 8000`, puis ouvrez `h
 
 ### 5. Autoriser l'adresse de l'app pour les liens de connexion
 Dans Supabase : **Authentication → URL Configuration**
-- **Site URL** : l'adresse de l'app (par ex. `https://agbecidavid.github.io/immo-app-famille/`)
-- **Redirect URLs** : ajoutez la même adresse (et `http://localhost:8000/` si vous testez en local)
+- **Site URL** : `https://agbecidavid.github.io/immo-app-famille/`
+- **Redirect URLs** : ajoutez `https://agbecidavid.github.io/immo-app-famille/**` (et `http://localhost:8000/**` pour tester en local)
 
 ### 5 bis. Brancher un service d'envoi d'e-mails (obligatoire pour la famille)
 Le service d'envoi gratuit de Supabase **n'envoie qu'aux membres de votre équipe Supabase**, et seulement quelques e-mails par heure. Vos proches ne recevraient rien. Branchez votre propre service (SMTP). Avec Gmail, c'est gratuit :
@@ -100,6 +108,7 @@ Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? 
 | `index.html` | structure des pages |
 | `style.css` | apparence (thèmes clair et sombre, mobile) |
 | `app.js` | logique de l'application |
+| `manifest.webmanifest`, `icons/` | installation sur l'écran d'accueil du téléphone |
 | `icons.js` | icônes de l'interface ([Lucide](https://lucide.dev), licence ISC) |
 | `config.js` | adresse et clé publique de **votre** projet Supabase |
 | `supabase/schema.sql` | tables, règles de sécurité et limite de 5 membres |
