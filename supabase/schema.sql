@@ -192,6 +192,14 @@ drop policy if exists biens_suppression on public.biens;
 create policy biens_suppression on public.biens
   for delete to authenticated using (public.est_admin());
 
+-- Droits d'accès via l'API (les règles RLS ci-dessus filtrent ensuite les lignes)
+grant usage on schema public to anon, authenticated;
+grant select, update, delete         on public.membres to authenticated;
+grant select, insert, update, delete on public.biens   to authenticated;
+grant execute on function public.email_courant() to anon, authenticated;
+grant execute on function public.est_membre()    to anon, authenticated;
+grant execute on function public.est_admin()     to anon, authenticated;
+
 -- ------------------------------------------------------------
 -- 4. FICHIERS (photos + documents) — bucket privé
 -- ------------------------------------------------------------
