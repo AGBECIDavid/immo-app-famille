@@ -108,11 +108,31 @@ self.addEventListener('activate', e => e.waitUntil(
 ));
 ```
 
+## 🔔 Notifications sur téléphone
+- **L'admin** est prévenu quand un proche **demande l'accès**.
+- **Toute la famille** est prévenue quand un **nouveau bien est ajouté** (sauf la personne qui l'a ajouté).
+- Chacun les active sur son téléphone : bandeau sur l'accueil, ou menu de l'avatar → **Activer les notifications**. Toucher une notification ouvre la bonne page.
+- À la déconnexion, le téléphone ne reçoit plus les notifications de ce compte.
+
+### Mise en place (une seule fois, environ 10 minutes)
+1. **Générer les clés** : ouvrez `https://agbecidavid.github.io/immo-app-famille/outils/cles-notifications.html` (ou `outils/cles-notifications.html` en local) et cliquez sur **Générer les clés**. Elles sont créées dans votre navigateur, rien n'est envoyé.
+   - Collez la **clé publique** dans `config.js` (`VAPID_PUBLIC_KEY`), puis publiez.
+   - Gardez la **clé privée** pour l'étape 3. Elle ne doit **jamais** aller dans `config.js` ni sur GitHub.
+2. **SQL Editor** : exécutez `supabase/04_notifications.sql`. Le résultat affiche un **NOTIFY_SECRET** : copiez-le.
+3. **Edge Functions → Secrets** : ajoutez trois secrets : `NOTIFY_SECRET`, `VAPID_PUBLIC_KEY` et `VAPID_PRIVATE_KEY`.
+4. **Edge Functions → Deploy a new function → Via Editor** :
+   - nom : `notifier` (exactement) ;
+   - collez tout le contenu de `supabase/functions/notifier/index.ts`, puis **Deploy** ;
+   - dans les réglages de la fonction, **désactivez « Verify JWT »** (la base s'authentifie avec `NOTIFY_SECRET`).
+5. Dans l'app : menu de l'avatar → **Activer les notifications**. Pour tester, faites une demande d'accès avec une autre adresse : la notification arrive sur votre téléphone.
+
+Tant que `VAPID_PUBLIC_KEY` est vide dans `config.js`, l'option n'apparaît pas et rien ne change.
+
 ## 🆘 Mot de passe oublié (vous ou un membre)
 Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? »**. Un code arrive par e-mail, et on choisit un nouveau mot de passe.
 
 ## ⚠️ Bon à savoir (offre gratuite Supabase)
-- **Mise en pause après 7 jours sans activité.** Si personne n'utilise l'app pendant une semaine, le projet se met en pause. Il suffit de le relancer depuis le tableau de bord Supabase. Les données ne sont pas perdues.
+- **Mise en pause après 7 jours sans activité** : c'est évité automatiquement. La tâche GitHub « Réveil Supabase » (`.github/workflows/supabase-reveil.yml`) appelle la base tous les 3 jours. Vous pouvez la lancer à la main depuis l'onglet **Actions**. Si le projet était quand même en pause, relancez-le depuis le tableau de bord Supabase : les données ne sont pas perdues.
 - **E-mails de connexion limités** à quelques-uns par heure avec le service d'envoi intégré. Pour 5 personnes, c'est suffisant, et on reste connecté longtemps sur un appareil. Si besoin, on peut brancher son propre service d'envoi (SMTP).
 - Stockage inclus : 1 Go de fichiers (photos et documents) et 500 Mo de base de données.
 - **Sauvegarde** : le bouton ⬇️ exporte tous les biens **avec leurs photos et documents** dans un fichier JSON. Le bouton ⬆️ permet de le réimporter.
@@ -128,3 +148,6 @@ Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? 
 | `config.js` | adresse et clé publique de **votre** projet Supabase |
 | `supabase/schema.sql` | tables, règles de sécurité et limite de 5 membres |
 | `supabase/03_mot_de_passe.sql` | comptes, mots de passe, état des invitations |
+| `supabase/04_notifications.sql`, `supabase/functions/notifier/` | notifications sur téléphone |
+| `outils/cles-notifications.html` | génération des clés de notification |
+| `.github/workflows/supabase-reveil.yml` | réveil automatique de Supabase |

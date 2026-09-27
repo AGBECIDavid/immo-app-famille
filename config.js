@@ -7,5 +7,9 @@
 ============================================================ */
 window.IMMO_CONFIG = {
   SUPABASE_URL:      'https://jspdkdbyubxohfzdybgv.supabase.co',
-  SUPABASE_ANON_KEY: 'sb_publishable_78DKOj7FwxmdoNq8vIFptg_hqHIlvQ1'
+  SUPABASE_ANON_KEY: 'sb_publishable_78DKOj7FwxmdoNq8vIFptg_hqHIlvQ1',
+
+  // Notifications : clé PUBLIQUE générée avec outils/cles-notifications.html
+  // (laisser vide tant que les notifications ne sont pas mises en place)
+  VAPID_PUBLIC_KEY:  ''
 };

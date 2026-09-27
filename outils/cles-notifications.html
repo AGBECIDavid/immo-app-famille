@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="robots" content="noindex"/>
+  <title>ImmoFamille · Clés des notifications</title>
+  <link rel="stylesheet" href="../style.css"/>
+  <style>
+    body { background: var(--bg); }
+    .page { max-width: 640px; }
+    .key-row { display: flex; gap: 8px; margin-bottom: 6px; }
+    .key-row .input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 13px; }
+    .danger-note { color: var(--danger); font-weight: 600; }
+    ol.steps { padding-left: 20px; display: grid; gap: 8px; color: var(--ink-2); }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <p class="eyebrow">ImmoFamille · outil de mise en place</p>
+      <h1 class="page-title">Clés des notifications</h1>
+      <p class="page-sub">Ces clés sont générées <strong>dans votre navigateur</strong> : rien n'est envoyé sur Internet. À faire une seule fois.</p>
+    </header>
+
+    <section class="panel">
+      <button type="button" class="btn btn-primary btn-lg" id="btn-generer">Générer les clés</button>
+      <div id="resultat" hidden>
+        <div class="field" style="margin-top:20px">
+          <label class="label" for="cle-publique">Clé publique <span class="label-hint">→ config.js (VAPID_PUBLIC_KEY) et Secrets Supabase (VAPID_PUBLIC_KEY)</span></label>
+          <div class="key-row">
+            <input class="input input-readonly" id="cle-publique" readonly/>
+            <button type="button" class="btn btn-secondary" data-copier="cle-publique">Copier</button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="cle-privee">Clé privée <span class="label-hint">→ Secrets Supabase uniquement (VAPID_PRIVATE_KEY)</span></label>
+          <div class="key-row">
+            <input class="input input-readonly" id="cle-privee" readonly/>
+            <button type="button" class="btn btn-secondary" data-copier="cle-privee">Copier</button>
+          </div>
+          <p class="hint danger-note">Ne mettez jamais la clé privée dans config.js, sur GitHub ni dans un message.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 style="font-size:17px;margin-bottom:10px">Ensuite</h2>
+      <ol class="steps">
+        <li>Collez la <strong>clé publique</strong> dans <code>config.js</code> (<code>VAPID_PUBLIC_KEY</code>) et publiez.</li>
+        <li>Dans Supabase → <strong>Edge Functions → Secrets</strong>, ajoutez <code>VAPID_PUBLIC_KEY</code> et <code>VAPID_PRIVATE_KEY</code>.</li>
+        <li>Suivez la suite dans le README, section « Notifications ».</li>
+      </ol>
+    </section>
+  </main>
+
+  <script>
+    const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    document.getElementById('btn-generer').addEventListener('click', async () => {
+      // Paire de clés P-256, format attendu par web-push (VAPID)
+      const paire = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+      const publique = await crypto.subtle.exportKey('raw', paire.publicKey);
+      const privee   = await crypto.subtle.exportKey('jwk', paire.privateKey);
+      document.getElementById('cle-publique').value = b64url(publique);
+      document.getElementById('cle-privee').value   = privee.d;
+      document.getElementById('resultat').hidden = false;
+      document.getElementById('btn-generer').textContent = 'Générer de nouvelles clés';
+    });
+
+    document.querySelectorAll('[data-copier]').forEach(btn => btn.addEventListener('click', async () => {
+      const champ = document.getElementById(btn.dataset.copier);
+      champ.select();
+      try { await navigator.clipboard.writeText(champ.value); btn.textContent = 'Copié'; }
+      catch (e) { document.execCommand('copy'); btn.textContent = 'Copié'; }
+      setTimeout(() => { btn.textContent = 'Copier'; }, 1500);
+    }));
+  </script>
+</body>
+</html>

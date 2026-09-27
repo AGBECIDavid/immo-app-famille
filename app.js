@@ -1989,6 +1989,8 @@ async function sendDemande() {
 }
 
 async function logout() {
+  // Un téléphone prêté ne doit plus recevoir les notifications de ce compte
+  if (sb && session) await disableNotifications(true).catch(() => {});
   if (sb) await sb.auth.signOut();
   resetSessionState();
   showView('auth');
@@ -2008,6 +2010,7 @@ function resetSessionState() {
     if (el) el.value = '';
   });
   document.body.classList.remove('is-admin');
+  updateNotifUI();
 }
 
 /* Écran générique (attente de validation, configuration manquante…) */
@@ -2147,7 +2150,13 @@ function enterApp() {
   document.getElementById('user-chip').textContent  = `${m.prenom} ${m.nom}`;
   document.getElementById('user-email').textContent = m.email || '';
   showView('home');
+  updateNotifUI();
   if (isAdmin()) setTimeout(proposeMigration, 800);
+  if (pendingOpen) {
+    const cible = pendingOpen;
+    pendingOpen = null;
+    setTimeout(() => ouvrirCible(cible), 300);
+  }
 }
 
 /* Menu du compte (avatar en haut à droite) */
@@ -2411,6 +2420,120 @@ window.addEventListener('online',  () => updateOnlineStatus(true));
 window.addEventListener('offline', () => updateOnlineStatus(false));
 
 /* ============================================================
+   🔔 NOTIFICATIONS (web push)
+   L'appareil s'abonne ; la fonction Supabase « notifier » envoie les
+   messages (nouvelle demande pour l'admin, nouveau bien pour la famille).
+============================================================ */
+const NOTIF_DISMISS_KEY = 'immofamille_notifications_refusees';
+let pendingOpen = null;   // page à ouvrir après connexion (notification touchée)
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window &&
+         !!(window.IMMO_CONFIG && window.IMMO_CONFIG.VAPID_PUBLIC_KEY);
+}
+
+function b64urlToBytes(str) {
+  const pad = '='.repeat((4 - str.length % 4) % 4);
+  const bin = atob((str + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+async function currentPushSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+function notifDismissed() {
+  try { return localStorage.getItem(NOTIF_DISMISS_KEY) === '1'; } catch (e) { return false; }
+}
+
+async function updateNotifUI() {
+  const item   = document.getElementById('menu-notif');
+  const banner = document.getElementById('notif-banner');
+  if (!pushSupported() || !hasAccess()) { item.hidden = true; banner.hidden = true; return; }
+
+  const sub = await currentPushSubscription().catch(() => null);
+  const on  = !!sub && Notification.permission === 'granted';
+  item.hidden = false;
+  document.getElementById('menu-notif-label').textContent = on ? 'Couper les notifications' : 'Activer les notifications';
+  document.getElementById('menu-notif-icon').innerHTML    = icon(on ? 'bell-off' : 'bell');
+  document.getElementById('notif-banner-text').textContent = isAdmin()
+    ? 'Une notification quand un proche demande l\'accès ou qu\'un bien est ajouté.'
+    : 'Une notification quand un bien est ajouté par la famille.';
+  banner.hidden = on || Notification.permission === 'denied' || notifDismissed();
+}
+
+async function enableNotifications() {
+  if (!pushSupported()) return;
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    showToast(permission === 'denied'
+      ? 'Notifications bloquées : autorisez-les dans les réglages du navigateur.'
+      : 'Notifications non activées.', 'error');
+    return updateNotifUI();
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: b64urlToBytes(window.IMMO_CONFIG.VAPID_PUBLIC_KEY)
+    });
+    const keys = sub.toJSON().keys;
+    const { error } = await sb.from('push_abonnements')
+      .upsert({ endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth }, { onConflict: 'endpoint' });
+    if (error) throw error;
+    showToast('Notifications activées sur cet appareil', 'success');
+  } catch (e) {
+    showToast('Activation impossible : ' + e.message, 'error');
+  }
+  updateNotifUI();
+}
+
+async function disableNotifications(silent) {
+  const sub = await currentPushSubscription().catch(() => null);
+  if (sub) {
+    await sb.from('push_abonnements').delete().eq('endpoint', sub.endpoint);
+    await sub.unsubscribe().catch(() => {});
+  }
+  if (!silent) showToast('Notifications coupées sur cet appareil');
+  updateNotifUI();
+}
+
+async function toggleNotifications() {
+  const sub = await currentPushSubscription().catch(() => null);
+  if (sub && Notification.permission === 'granted') disableNotifications(false);
+  else enableNotifications();
+}
+
+function dismissNotifBanner() {
+  try { localStorage.setItem(NOTIF_DISMISS_KEY, '1'); } catch (e) { /* ignore */ }
+  updateNotifUI();
+}
+
+/** Ouvre la page visée par une notification : « famille » ou « bien:<id> ». */
+async function ouvrirCible(cible) {
+  if (!cible) return;
+  if (!hasAccess()) { pendingOpen = cible; return; }
+  if (cible === 'famille') {
+    if (isAdmin()) showView('admin');
+    return;
+  }
+  if (cible.startsWith('bien:')) {
+    const id = cible.slice(5);
+    await loadBiens();
+    if (getBiens().some(b => b.id === id)) showView('detail', id);
+    else showToast('Ce bien n\'existe plus.', 'error');
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'ouvrir') ouvrirCible(e.data.cible);
+  });
+}
+
+/* ============================================================
    🚀 INITIALISATION
 ============================================================ */
 async function initApp() {
@@ -2432,6 +2555,13 @@ async function initApp() {
   // Lien de connexion expiré ou déjà utilisé
   const hash = new URLSearchParams(window.location.hash.slice(1));
   const linkError = hash.get('error_description');
+
+  // Notification touchée alors que l'app était fermée : ?ouvrir=famille / ?ouvrir=bien:<id>
+  const query = new URLSearchParams(window.location.search);
+  if (query.get('ouvrir')) {
+    pendingOpen = query.get('ouvrir');
+    history.replaceState(null, '', appUrl() + window.location.hash);
+  }
 
   // Lien de l'e-mail ouvert dans cet onglet : on proposera de (re)définir le mot de passe
   if (hash.get('access_token')) markEmailLogin(true);
