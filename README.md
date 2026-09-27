@@ -93,6 +93,21 @@ Une fois le SMTP branché, les modèles deviennent modifiables. Pour que l'e-mai
 Ouvrez l'app, cliquez sur **Se connecter** avec votre e-mail d'admin, puis cliquez sur le lien reçu.
 Si des biens de l'ancienne version sont enregistrés dans ce navigateur, l'app propose de les **transférer dans l'espace familial**.
 
+## 📱 Application mobile (Android)
+ImmoFamille est une **application web installable** (PWA) :
+- Sur Android, Chrome propose **« Installer l'application »** (bandeau sur l'accueil, ou menu de l'avatar). Elle s'ouvre ensuite en plein écran depuis son icône, comme une vraie app.
+- Elle **s'ouvre même sans réseau**, avec un bandeau « Hors connexion ». Les modifications, elles, demandent une connexion.
+- Les mises à jour sont automatiques : **en ligne, c'est toujours la dernière version** qui est chargée (`sw.js` fonctionne en « réseau d'abord »). Les données Supabase ne sont jamais mises en cache.
+
+**En cas de problème** avec le mode hors ligne, remplacez tout le contenu de `sw.js` par ce qui suit et publiez : le cache est vidé et le service worker se retire tout seul chez tout le monde.
+```js
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(
+  caches.keys().then(k => Promise.all(k.map(c => caches.delete(c))))
+    .then(() => self.registration.unregister())
+));
+```
+
 ## 🆘 Mot de passe oublié (vous ou un membre)
 Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? »**. Un code arrive par e-mail, et on choisit un nouveau mot de passe.
 
@@ -108,7 +123,7 @@ Sur l'écran de connexion : saisir son e-mail, puis **« Mot de passe oublié ? 
 | `index.html` | structure des pages |
 | `style.css` | apparence (thèmes clair et sombre, mobile) |
 | `app.js` | logique de l'application |
-| `manifest.webmanifest`, `icons/` | installation sur l'écran d'accueil du téléphone |
+| `manifest.webmanifest`, `icons/`, `sw.js` | application installable sur téléphone, ouverture hors connexion |
 | `icons.js` | icônes de l'interface ([Lucide](https://lucide.dev), licence ISC) |
 | `config.js` | adresse et clé publique de **votre** projet Supabase |
 | `supabase/schema.sql` | tables, règles de sécurité et limite de 5 membres |

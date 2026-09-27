@@ -822,6 +822,27 @@ a.file-item:hover, button.file-item:hover { border-color: var(--line-strong); ba
 .tag-warn    { background: var(--warn-soft); color: var(--warn); }
 .tag-danger  { background: var(--danger-soft); color: var(--danger); }
 
+/* Installation sur téléphone & hors connexion */
+.install-card[hidden], .offline-banner[hidden] { display: none; }
+.install-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 12px 12px 14px; margin-bottom: 20px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.install-logo { width: 38px; height: 38px; flex-shrink: 0; color: var(--brand); }
+.install-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13.5px; line-height: 1.35; }
+.install-text span { color: var(--muted); }
+.install-close { width: 32px; height: 32px; flex-shrink: 0; }
+.offline-banner {
+  position: sticky; top: var(--topbar-h); z-index: 950;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 16px; background: var(--warn-soft); color: var(--ink);
+  font-size: 13.5px; font-weight: 500; text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+.offline-banner .icon { width: 16px; height: 16px; color: var(--warn); }
+
 /* ------------------------------------------------------------
    8. SUPERPOSITIONS (modal, lightbox, toasts, loader)
 ------------------------------------------------------------ */

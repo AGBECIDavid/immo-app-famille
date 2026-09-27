@@ -23,7 +23,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet"/>
 
   <!-- Notre CSS -->
-  <link rel="stylesheet" href="style.css?v=2026.09.25"/>
+  <link rel="stylesheet" href="style.css?v=2026.09.27"/>
 </head>
 <body class="auth-mode">
 
@@ -72,6 +72,9 @@
         <button class="menu-item admin-only" role="menuitem" onclick="closeUserMenu(); showView('admin')">
           <i data-icon="users"></i><span>Gérer la famille</span><span class="menu-count" id="menu-admin-count"></span>
         </button>
+        <button class="menu-item" role="menuitem" id="menu-install" hidden onclick="closeUserMenu(); installApp()">
+          <i data-icon="download"></i><span>Installer l'application</span>
+        </button>
         <button class="menu-item" role="menuitem" onclick="closeUserMenu(); exportJSON()">
           <i data-icon="download"></i><span>Sauvegarder les biens</span>
         </button>
@@ -90,6 +93,11 @@
     </div>
   </div>
 </header>
+
+<!-- Hors connexion -->
+<div class="offline-banner" id="offline-banner" role="status" hidden>
+  <i data-icon="wifi-off"></i><span>Hors connexion : l'affichage peut ne pas être à jour et les modifications sont impossibles.</span>
+</div>
 
 <!-- Lightbox -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
@@ -301,6 +309,18 @@
 <div class="view" id="view-home">
   <div class="home-layout" id="home-layout">
     <section class="list-pane">
+      <div class="install-card" id="install-banner" hidden>
+        <svg class="install-logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="9" fill="currentColor"/>
+          <path d="M8 15.5 16 9l8 6.5V23a1 1 0 0 1-1 1h-4.5v-5h-5v5H9a1 1 0 0 1-1-1z" fill="#fff"/>
+        </svg>
+        <div class="install-text">
+          <strong>Installer ImmoFamille sur ce téléphone</strong>
+          <span>Ouvrez l'app en un geste depuis l'écran d'accueil.</span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="installApp()">Installer</button>
+        <button class="icon-btn install-close" onclick="dismissInstall()" aria-label="Ne plus proposer"><i data-icon="x"></i></button>
+      </div>
       <div class="list-head">
         <div class="list-title-row">
           <div>
@@ -526,10 +546,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <!-- Configuration Supabase -->
-<script src="config.js?v=2026.09.25"></script>
+<script src="config.js?v=2026.09.27"></script>
 
 <!-- Notre JS (le ?v= force le rechargement après une mise à jour : changez-le à chaque mise en ligne) -->
-<script src="icons.js?v=2026.09.25"></script>
-<script src="app.js?v=2026.09.25"></script>
+<script src="icons.js?v=2026.09.27"></script>
+<script src="app.js?v=2026.09.27"></script>
 </body>
 </html>

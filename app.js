@@ -2352,6 +2352,65 @@ function copyShareLink() {
 }
 
 /* ============================================================
+   📱 APPLICATION MOBILE (PWA) : installation, hors connexion
+============================================================ */
+const INSTALL_DISMISS_KEY = 'immofamille_installation_refusee';
+let installPrompt = null;   // proposé par Chrome sur Android quand l'app est installable
+
+function registerServiceWorker() {
+  // Disponible uniquement en https (site en ligne) ou sur localhost
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker non enregistré :', e));
+}
+
+function installDismissed() {
+  try { return localStorage.getItem(INSTALL_DISMISS_KEY) === '1'; } catch (e) { return false; }
+}
+
+function updateInstallUI() {
+  const can = !!installPrompt;
+  document.getElementById('menu-install').hidden   = !can;
+  document.getElementById('install-banner').hidden = !can || installDismissed();
+}
+
+async function installApp() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  updateInstallUI();
+}
+
+function dismissInstall() {
+  try { localStorage.setItem(INSTALL_DISMISS_KEY, '1'); } catch (e) { /* ignore */ }
+  updateInstallUI();
+}
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  updateInstallUI();
+});
+
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  updateInstallUI();
+  showToast('ImmoFamille est installée sur ce téléphone', 'success');
+});
+
+function updateOnlineStatus(announce) {
+  const offline = !navigator.onLine;
+  document.getElementById('offline-banner').hidden = !offline;
+  if (announce && !offline) {
+    showToast('Connexion rétablie', 'success');
+    if (hasAccess() && document.getElementById('view-home').classList.contains('active')) showView('home');
+  }
+}
+
+window.addEventListener('online',  () => updateOnlineStatus(true));
+window.addEventListener('offline', () => updateOnlineStatus(false));
+
+/* ============================================================
    🚀 INITIALISATION
 ============================================================ */
 async function initApp() {
@@ -2424,6 +2483,8 @@ async function initApp() {
 window.addEventListener('load', () => {
   hydrateIcons();
   initTheme();
+  registerServiceWorker();
+  updateOnlineStatus(false);
   setMobileMap(false);
   initApp();
 });

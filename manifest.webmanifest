@@ -2,6 +2,7 @@
   "name": "ImmoFamille",
   "short_name": "ImmoFamille",
   "description": "Le patrimoine de la famille, rangé au même endroit.",
+  "id": "./",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",
