@@ -1,0 +1,32 @@
+# Empêche la mise en pause du projet Supabase (offre gratuite : pause après
+# 7 jours sans activité). Tous les 3 jours, on appelle une fonction inoffensive
+# de la base avec la clé PUBLIQUE de config.js.
+# Lancement manuel possible : onglet Actions → « Réveil Supabase » → Run workflow.
+name: Réveil Supabase
+
+on:
+  schedule:
+    - cron: '17 6 */3 * *'   # tous les 3 jours à 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reveil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Appeler la base
+        run: |
+          URL=$(grep -oP "SUPABASE_URL:\s*'\K[^']+" config.js)
+          KEY=$(grep -oP "SUPABASE_ANON_KEY:\s*'\K[^']+" config.js)
+          echo "Projet : $URL"
+          STATUS=$(curl -sS -o reponse.txt -w '%{http_code}' \
+            -X POST "$URL/rest/v1/rpc/statut_email" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" \
+            -d '{"p_email":"reveil@immofamille.invalid"}')
+          echo "Réponse ($STATUS) : $(cat reponse.txt)"
+          test "$STATUS" = "200"
