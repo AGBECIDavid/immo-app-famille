@@ -11,5 +11,5 @@ window.IMMO_CONFIG = {
 
   // Notifications : clé PUBLIQUE générée avec outils/cles-notifications.html
   // (laisser vide tant que les notifications ne sont pas mises en place)
-  VAPID_PUBLIC_KEY:  ''
+  VAPID_PUBLIC_KEY:  'BGlRodL3WQzk-oGdqc8KqGHGq-dPVju2KJYuJUoEycVfDcVGil3CZ4lurobbma7tEQft4T7arb8I7FztU64k2WU'
 };
