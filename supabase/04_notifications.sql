@@ -124,6 +124,19 @@ create trigger notif_nouveau_bien
   after insert on public.biens
   for each row execute function public.notif_nouveau_bien();
 
+-- Notification de test : chaque membre peut s'en envoyer une, à lui seul
+create or replace function public.tester_notifications()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.est_membre() then
+    raise exception 'Réservé aux membres.';
+  end if;
+  perform public.envoyer_notification('test', public.email_courant());
+end $$;
+
+revoke execute on function public.tester_notifications() from public, anon;
+grant  execute on function public.tester_notifications() to authenticated;
+
 -- ------------------------------------------------------------
 -- 4. À COPIER : le secret à coller dans les « Secrets » de la fonction
 --    (Edge Functions → Secrets → NOTIFY_SECRET)

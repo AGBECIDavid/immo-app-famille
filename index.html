@@ -23,7 +23,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet"/>
 
   <!-- Notre CSS -->
-  <link rel="stylesheet" href="style.css?v=2026.09.29"/>
+  <link rel="stylesheet" href="style.css?v=2026.09.30"/>
 </head>
 <body class="auth-mode">
 
@@ -74,6 +74,9 @@
         </button>
         <button class="menu-item" role="menuitem" id="menu-notif" hidden onclick="closeUserMenu(); toggleNotifications()">
           <span id="menu-notif-icon"></span><span id="menu-notif-label">Activer les notifications</span>
+        </button>
+        <button class="menu-item" role="menuitem" id="menu-notif-test" hidden onclick="closeUserMenu(); testNotifications()">
+          <i data-icon="bell-ring"></i><span>Tester les notifications</span>
         </button>
         <button class="menu-item" role="menuitem" id="menu-install" hidden onclick="closeUserMenu(); installApp()">
           <i data-icon="download"></i><span>Installer l'application</span>
@@ -558,10 +561,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
 <!-- Configuration Supabase -->
-<script src="config.js?v=2026.09.29"></script>
+<script src="config.js?v=2026.09.30"></script>
 
 <!-- Notre JS (le ?v= force le rechargement après une mise à jour : changez-le à chaque mise en ligne) -->
-<script src="icons.js?v=2026.09.29"></script>
-<script src="app.js?v=2026.09.29"></script>
+<script src="icons.js?v=2026.09.30"></script>
+<script src="app.js?v=2026.09.30"></script>
 </body>
 </html>

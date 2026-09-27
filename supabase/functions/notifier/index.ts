@@ -3,6 +3,7 @@
 //  Appelée par la base (supabase/04_notifications.sql) :
 //    { type: 'demande', id }  → prévient les administrateurs
 //    { type: 'bien',    id }  → prévient les autres membres
+//    { type: 'test',    id }  → notification de test (id = e-mail du membre)
 //  Elle relit toujours les données dans la base : le contenu de
 //  l'appel ne sert qu'à savoir QUOI annoncer.
 //
@@ -62,6 +63,17 @@ Deno.serve(async (req) => {
       body: b.nom + (b.adresse ? ` · ${b.adresse}` : '') + (auteur ? ` (par ${auteur.prenom})` : ''),
       url: '?ouvrir=bien:' + b.id,
       tag: 'bien-' + b.id
+    };
+  } else if (type === 'test') {
+    // Test demandé par un membre depuis l'app : id = son e-mail, envoyé à lui seul
+    const { data: m } = await db.from('membres').select('email').eq('email', id).eq('statut', 'approuve').maybeSingle();
+    if (!m) return json({ sent: 0, reason: 'membre introuvable' });
+    emails = [m.email];
+    message = {
+      title: 'Notifications activées ✓',
+      body: 'Tout fonctionne : vous serez prévenu ici des nouveautés de la famille.',
+      url: './',
+      tag: 'test'
     };
   } else {
     return json({ error: 'type inconnu' }, 400);

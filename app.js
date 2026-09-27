@@ -2450,12 +2450,14 @@ function notifDismissed() {
 
 async function updateNotifUI() {
   const item   = document.getElementById('menu-notif');
+  const test   = document.getElementById('menu-notif-test');
   const banner = document.getElementById('notif-banner');
-  if (!pushSupported() || !hasAccess()) { item.hidden = true; banner.hidden = true; return; }
+  if (!pushSupported() || !hasAccess()) { item.hidden = true; test.hidden = true; banner.hidden = true; return; }
 
   const sub = await currentPushSubscription().catch(() => null);
   const on  = !!sub && Notification.permission === 'granted';
   item.hidden = false;
+  test.hidden = !on;
   document.getElementById('menu-notif-label').textContent = on ? 'Couper les notifications' : 'Activer les notifications';
   document.getElementById('menu-notif-icon').innerHTML    = icon(on ? 'bell-off' : 'bell');
   document.getElementById('notif-banner-text').textContent = isAdmin()
@@ -2483,7 +2485,8 @@ async function enableNotifications() {
     const { error } = await sb.from('push_abonnements')
       .upsert({ endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth }, { onConflict: 'endpoint' });
     if (error) throw error;
-    showToast('Notifications activées sur cet appareil', 'success');
+    showToast('Notifications activées : une notification de test arrive dans quelques secondes', 'success');
+    sb.rpc('tester_notifications').then(({ error: e }) => { if (e) console.warn('Test de notification :', e.message); });
   } catch (e) {
     showToast('Activation impossible : ' + e.message, 'error');
   }
@@ -2504,6 +2507,13 @@ async function toggleNotifications() {
   const sub = await currentPushSubscription().catch(() => null);
   if (sub && Notification.permission === 'granted') disableNotifications(false);
   else enableNotifications();
+}
+
+/** Envoie une notification de test à cet utilisateur (tous ses appareils abonnés). */
+async function testNotifications() {
+  const { error } = await sb.rpc('tester_notifications');
+  if (error) return showToast('Test impossible : ' + error.message, 'error');
+  showToast('Notification de test envoyée : elle arrive dans quelques secondes', 'success');
 }
 
 function dismissNotifBanner() {

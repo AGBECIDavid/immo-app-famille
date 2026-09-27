@@ -124,7 +124,7 @@ self.addEventListener('activate', e => e.waitUntil(
    - nom : `notifier` (exactement) ;
    - collez tout le contenu de `supabase/functions/notifier/index.ts`, puis **Deploy** ;
    - dans les réglages de la fonction, **désactivez « Verify JWT »** (la base s'authentifie avec `NOTIFY_SECRET`).
-5. Dans l'app : menu de l'avatar → **Activer les notifications**. Pour tester, faites une demande d'accès avec une autre adresse : la notification arrive sur votre téléphone.
+5. Dans l'app : menu de l'avatar → **Activer les notifications**. Une **notification de test** arrive quelques secondes plus tard. Vous pouvez la redemander à tout moment : menu de l'avatar → **Tester les notifications**.
 
 Tant que `VAPID_PUBLIC_KEY` est vide dans `config.js`, l'option n'apparaît pas et rien ne change.
 
