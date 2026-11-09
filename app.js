@@ -1776,9 +1776,16 @@ function isRateLimited(error) {
   return !!error && (error.status === 429 || /rate limit|security purposes/i.test(error.message || ''));
 }
 
+const NETWORK_ERROR_RE = /failed to fetch|networkerror|load failed|network request failed|fetch failed/i;
+
 function authErrorMessage(error) {
   if (!error) return '';
   if (isRateLimited(error)) return 'Trop de tentatives. Patientez une minute avant de réessayer.';
+  if (NETWORK_ERROR_RE.test(error.message || '')) {
+    return navigator.onLine === false
+      ? 'Pas de connexion internet. Vérifiez votre réseau puis réessayez.'
+      : 'Le serveur ne répond pas pour le moment. Réessayez dans quelques minutes ; si cela continue, prévenez l\'administrateur.';
+  }
   return error.message || 'Erreur inconnue.';
 }
 
@@ -2546,6 +2553,25 @@ if ('serviceWorker' in navigator) {
 /* ============================================================
    🚀 INITIALISATION
 ============================================================ */
+/** Vérifie que Supabase répond. Seule une vraie erreur réseau (adresse introuvable,
+ *  serveur coupé) ou une erreur 5xx compte : un réseau lent ne bloque pas l'app. */
+async function serveurJoignable() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(window.IMMO_CONFIG.SUPABASE_URL.replace(/\/+$/, '') + '/auth/v1/health', {
+      headers: { apikey: window.IMMO_CONFIG.SUPABASE_ANON_KEY },
+      cache: 'no-store',
+      signal: ctrl.signal
+    });
+    return res.status < 500;
+  } catch (e) {
+    return ctrl.signal.aborted;   // délai dépassé : on laisse l'app essayer quand même
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function initApp() {
   if (!window.supabase || !window.supabase.createClient) {
     return showMessage('wifi-off', 'Connexion impossible',
@@ -2556,6 +2582,18 @@ async function initApp() {
     return showMessage('settings', 'Configuration requise',
       'Renseignez l\'adresse et la clé de votre projet Supabase dans le fichier <code>config.js</code>, ' +
       'puis exécutez <code>supabase/schema.sql</code>. Tout est expliqué dans le <code>README.md</code>.');
+  }
+
+  // Le serveur (Supabase) répond-il ? Sinon on le dit clairement au lieu d'un écran figé
+  if (!(await serveurJoignable())) {
+    const horsLigne = navigator.onLine === false;
+    return showMessage('wifi-off', horsLigne ? 'Pas de connexion internet' : 'Serveur indisponible',
+      horsLigne
+        ? 'Vérifiez votre connexion internet puis réessayez.'
+        : 'Le serveur de l\'application ne répond pas pour le moment : la connexion et les biens sont inaccessibles. ' +
+          'Réessayez dans quelques minutes. Si cela continue, prévenez l\'administrateur ' +
+          '(projet Supabase en pause : tableau de bord Supabase → « Restore project »).',
+      '<button class="btn btn-primary" onclick="location.reload()">Réessayer</button>');
   }
 
   sb = window.supabase.createClient(window.IMMO_CONFIG.SUPABASE_URL, window.IMMO_CONFIG.SUPABASE_ANON_KEY, {
